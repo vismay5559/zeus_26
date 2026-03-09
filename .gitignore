@@ -1,0 +1,12 @@
+# ROS 2 build artifacts
+build/
+install/
+log/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# IDE specific
+.vscode/
+.idea/
