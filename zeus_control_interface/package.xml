@@ -3,11 +3,14 @@
 <package format="3">
   <name>zeus_control_interface</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>this package is responsible for making the exact CAN messages for the zeus robot</description>
   <maintainer email="vismayshah121@gmail.com">vismay</maintainer>
   <license>BSD-3-Clause</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>zeus_can_interface</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

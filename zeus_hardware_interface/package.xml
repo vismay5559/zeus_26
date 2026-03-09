@@ -3,11 +3,18 @@
 <package format="3">
   <name>zeus_hardware_interface</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>this package is responsible for interfacing with the hardware of the zeus robot and ros2</description>
   <maintainer email="vismayshah121@gmail.com">vismay</maintainer>
   <license>BSD-3-Clause</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>std_msgs</depend>
+  <depend>zeus_control_interface</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

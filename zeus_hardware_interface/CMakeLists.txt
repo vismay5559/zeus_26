@@ -5,20 +5,81 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
+# ==============================================================================
+# 1. Find Dependencies
+# ==============================================================================
 find_package(ament_cmake REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(hardware_interface REQUIRED)
+find_package(pluginlib REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(zeus_control_interface REQUIRED)
+find_package(zeus_can_interface REQUIRED)
 
+# ==============================================================================
+# 2. Build the Library
+# ==============================================================================
+# ==============================================================================
+# 2. Build the Library
+# ==============================================================================
+add_library(${PROJECT_NAME} SHARED
+  src/rpi_can_hardware_interface.cpp
+)
+
+target_include_directories(${PROJECT_NAME} PRIVATE include)
+
+# USE THIS INSTEAD OF target_link_libraries
+# This ensures that headers like hardware_info.hpp are found
+ament_target_dependencies(${PROJECT_NAME}
+  zeus_control_interface
+  zeus_can_interface
+  rclcpp
+  hardware_interface
+  pluginlib
+  rclcpp_lifecycle
+  std_msgs
+)
+
+# ==============================================================================
+# 3. Export the Plugin (The "Menu")
+# ==============================================================================
+# Tell pluginlib that this package provides a plugin via the XML file
+pluginlib_export_plugin_description_file(
+  hardware_interface zeus_hardware_interface.xml
+)
+
+# ==============================================================================
+# 4. Install Targets
+# ==============================================================================
+# Install the compiled library (.so file) so ROS can load it
+install(
+  TARGETS ${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+# Install the XML file so it appears in the share folder
+install(
+  FILES zeus_hardware_interface.xml
+  DESTINATION share/${PROJECT_NAME}
+)
+
+# Install the header files (good practice)
+install(
+  DIRECTORY include/
+  DESTINATION include
+)
+
+ament_export_dependencies(pluginlib)
+
+# ==============================================================================
+# 5. Testing & Packaging
+# ==============================================================================
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # comment the line when a copyright and license is added to all source files
   set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # comment the line when this package is in a git repo and when
-  # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
