@@ -1,0 +1,9 @@
+<library path="zeus_hardware_interface">
+  <class name="zeus_hardware_interface/ZeusHardwareInterface"
+         type="zeus_hardware::ZeusHardwareInterface"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Custom dual-CAN hardware interface for the Zeus biped. Maps ESP32 joint data (can1) to state interfaces and ODrive commands (can0) to command interfaces.
+    </description>
+  </class>
+</library>

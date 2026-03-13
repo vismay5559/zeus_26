@@ -24,7 +24,7 @@ find_package(zeus_can_interface REQUIRED)
 # 2. Build the Library
 # ==============================================================================
 add_library(${PROJECT_NAME} SHARED
-  src/rpi_can_hardware_interface.cpp
+  src/zeus_hardware_interface.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE include)

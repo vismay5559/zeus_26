@@ -8,7 +8,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
-  src/socketcan_interface.cpp
+  src/zeus_can_interface.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC

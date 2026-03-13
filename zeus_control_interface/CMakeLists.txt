@@ -12,7 +12,7 @@ find_package(zeus_can_interface REQUIRED)  # <--- CRITICAL: Must find the packag
 
 # 2. CREATE LIBRARY
 add_library(${PROJECT_NAME} SHARED 
-src/robot.cpp)
+src/zeus_control_interface.cpp)
 
 # 3. INCLUDE DIRECTORIES
 target_include_directories(${PROJECT_NAME} PUBLIC
