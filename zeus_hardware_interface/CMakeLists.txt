@@ -14,7 +14,6 @@ find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(zeus_control_interface REQUIRED)
 find_package(zeus_can_interface REQUIRED)
 
 # ==============================================================================
@@ -24,7 +23,7 @@ find_package(zeus_can_interface REQUIRED)
 # 2. Build the Library
 # ==============================================================================
 add_library(${PROJECT_NAME} SHARED
-  src/zeus_hardware_interface.cpp
+  src/zeus_system.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE include)
@@ -32,7 +31,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE include)
 # USE THIS INSTEAD OF target_link_libraries
 # This ensures that headers like hardware_info.hpp are found
 ament_target_dependencies(${PROJECT_NAME}
-  zeus_control_interface
   zeus_can_interface
   rclcpp
   hardware_interface

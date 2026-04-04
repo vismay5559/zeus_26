@@ -1,140 +1,118 @@
-#include "zeus_can_interface/zeus_can_interface.hpp"
+#include "zeus_can_interface/socketcan.hpp"
 #include <iostream>
 #include <cstring>
 #include <unistd.h>
-#include <sys/socket.h>
+#include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <net/if.h>
-#include <linux/can.h>
-#include <linux/can/raw.h>
-#include <cerrno>
 
-namespace zeus_hardware {
+namespace zeus_can_interface
+{
 
-ZeusCanInterface::ZeusCanInterface() 
-    : muscle_socket_id_(-1), sense_socket_id_(-1) {}
+SocketCANTransceiver::SocketCANTransceiver() : socket_fd_(-1), is_open_(false) {}
 
-ZeusCanInterface::~ZeusCanInterface() {
-    deinit();
+SocketCANTransceiver::~SocketCANTransceiver()
+{
+    close_port();
 }
 
-bool ZeusCanInterface::init(const std::string& muscle_iface, 
-                            const std::string& sense_iface, 
-                            CanFrameCallback callback) {
-    muscle_iface_name_ = muscle_iface;
-    sense_iface_name_ = sense_iface;
-    frame_callback_ = std::move(callback);
+bool SocketCANTransceiver::open_port(const std::string& interface_name)
+{
+    struct sockaddr_can addr;
+    struct ifreq ifr;
 
-    // Open the ODrive highway
-    muscle_socket_id_ = init_socket(muscle_iface_name_);
-    if (muscle_socket_id_ < 0) {
-        std::cerr << "[ZeusCanInterface] Failed to initialize muscle CAN: " << muscle_iface_name_ << std::endl;
+    // 1. Create the raw CAN socket
+    socket_fd_ = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+    if (socket_fd_ < 0) {
+        std::cerr << "Error: Could not open CAN socket." << std::endl;
         return false;
     }
 
-    // Open the ESP32 highway
-    sense_socket_id_ = init_socket(sense_iface_name_);
-    if (sense_socket_id_ < 0) {
-        std::cerr << "[ZeusCanInterface] Failed to initialize sense CAN: " << sense_iface_name_ << std::endl;
+    // 2. Identify the network interface (e.g., "can0")
+    strncpy(ifr.ifr_name, interface_name.c_str(), IFNAMSIZ - 1);
+    ifr.ifr_name[IFNAMSIZ - 1] = '\0';
+    if (ioctl(socket_fd_, SIOCGIFINDEX, &ifr) < 0) {
+        std::cerr << "Error: Could not find interface " << interface_name << std::endl;
+        close_port();
         return false;
     }
 
-    std::cout << "[ZeusCanInterface] Successfully bound to " 
-              << muscle_iface_name_ << " and " << sense_iface_name_ << "!" << std::endl;
+    addr.can_family = AF_CAN;
+    addr.can_ifindex = ifr.ifr_ifindex;
+
+    // 3. Bind the socket to the interface
+    if (bind(socket_fd_, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        std::cerr << "Error: Could not bind CAN socket to " << interface_name << std::endl;
+        close_port();
+        return false;
+    }
+
+    // 4. CRITICAL FOR 1 kHz: Set the socket to non-blocking mode.
+    // If the bus is full, the write() command will instantly return instead of freezing the loop.
+    int flags = fcntl(socket_fd_, F_GETFL, 0);
+    fcntl(socket_fd_, F_SETFL, flags | O_NONBLOCK);
+
+    is_open_ = true;
     return true;
 }
 
-int ZeusCanInterface::init_socket(const std::string& iface_name) {
-    // 1. Ask Linux for a Raw CAN socket. 
-    // SOCK_NONBLOCK is crucial here so our 1000Hz loop never freezes waiting for data.
-    int socket_fd = socket(PF_CAN, SOCK_RAW | SOCK_NONBLOCK, CAN_RAW);
-    if (socket_fd < 0) {
-        return -1;
-    }
-
-    // 2. Translate the string name (e.g., "can0") into the OS's internal hardware index
-    struct ifreq ifr;
-    std::strcpy(ifr.ifr_name, iface_name.c_str());
-    if (ioctl(socket_fd, SIOCGIFINDEX, &ifr) < 0) {
-        close(socket_fd);
-        return -1;
-    }
-
-    // 3. Bind our software socket to that physical hardware index
-    struct sockaddr_can addr;
-    std::memset(&addr, 0, sizeof(addr));
-    addr.can_family = AF_CAN;
-    addr.can_ifindex = ifr.ifr_ifindex;
-    
-    if (bind(socket_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-        close(socket_fd);
-        return -1;
-    }
-
-    return socket_fd;
-}
-
-void ZeusCanInterface::deinit() {
-    if (muscle_socket_id_ >= 0) {
-        close(muscle_socket_id_);
-        muscle_socket_id_ = -1;
-    }
-    if (sense_socket_id_ >= 0) {
-        close(sense_socket_id_);
-        sense_socket_id_ = -1;
+void SocketCANTransceiver::close_port()
+{
+    if (is_open_ && socket_fd_ >= 0) {
+        close(socket_fd_);
+        socket_fd_ = -1;
+        is_open_ = false;
     }
 }
 
-bool ZeusCanInterface::send_muscle_frame(const can_frame& frame) {
-    if (muscle_socket_id_ < 0) return false;
-    
-    // Push the bytes directly to the Linux Kernel
-    ssize_t nbytes = write(muscle_socket_id_, &frame, sizeof(can_frame));
-    return (nbytes == sizeof(can_frame));
+// Memory-safe bit packing to avoid Strict Aliasing rule violations
+void SocketCANTransceiver::pack_float(float value, uint8_t* buffer, int start_index)
+{
+    std::memcpy(&buffer[start_index], &value, sizeof(float));
 }
 
-bool ZeusCanInterface::send_sense_frame(const can_frame& frame) {
-    if (sense_socket_id_ < 0) return false;
-    
-    ssize_t nbytes = write(sense_socket_id_, &frame, sizeof(can_frame));
-    return (nbytes == sizeof(can_frame));
+void SocketCANTransceiver::pack_int16(int16_t value, uint8_t* buffer, int start_index)
+{
+    std::memcpy(&buffer[start_index], &value, sizeof(int16_t));
 }
 
-void ZeusCanInterface::read_all_nonblocking() {
-    // Keep emptying the inboxes until both are completely dry
-    bool muscle_has_data = true;
-    bool sense_has_data = true;
-
-    while (muscle_has_data || sense_has_data) {
-        muscle_has_data = read_socket_nonblocking(muscle_socket_id_, muscle_iface_name_);
-        sense_has_data = read_socket_nonblocking(sense_socket_id_, sense_iface_name_);
-    }
-}
-
-bool ZeusCanInterface::read_socket_nonblocking(int socket_fd, const std::string& iface_name) {
-    if (socket_fd < 0) return false;
+bool SocketCANTransceiver::send_position_target(uint32_t node_id, float position, float vel_ff, float torque_ff)
+{
+    if (!is_open_) return false;
 
     struct can_frame frame;
-    ssize_t nbytes = read(socket_fd, &frame, sizeof(can_frame));
+    
+    // ODrive CAN Math: Shift the Node ID left by 5 bits and append the Command ID
+    frame.can_id = (node_id << 5) | ODESC_CMD_SET_INPUT_POS;
+    frame.can_dlc = 8; // We are sending 8 bytes of data
 
-    if (nbytes < 0) {
-        // EAGAIN or EWOULDBLOCK just means the inbox is currently empty.
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return false;
-        }
-        std::cerr << "[ZeusCanInterface] Error reading from " << iface_name << std::endl;
-        return false;
-    }
+    // The ODESC Set_Input_Pos command expects:
+    // Bytes 0-3: Position (Float32)
+    // Bytes 4-5: Velocity Feedforward (Int16) -> Factor: 0.001
+    // Bytes 6-7: Torque Feedforward (Int16) -> Factor: 0.001
 
-    if (nbytes == sizeof(can_frame)) {
-        // We successfully pulled a frame! Send it UP to the control layer.
-        if (frame_callback_) {
-            frame_callback_(iface_name, frame);
-        }
-        return true; // Return true to indicate we found data, so the while-loop checks again
-    }
+    int16_t vel_int = static_cast<int16_t>(vel_ff * 1000.0f);
+    int16_t torque_int = static_cast<int16_t>(torque_ff * 1000.0f);
 
-    return false;
+    pack_float(position, frame.data, 0);
+    pack_int16(vel_int, frame.data, 4);
+    pack_int16(torque_int, frame.data, 6);
+
+    // Send the frame over the Linux socket
+    int bytes_sent = write(socket_fd_, &frame, sizeof(struct can_frame));
+    
+    return (bytes_sent == sizeof(struct can_frame));
 }
 
-} // namespace zeus_hardware
+bool SocketCANTransceiver::read_frame(struct can_frame& frame)
+{
+    if (!is_open_) return false;
+
+    // Because the socket is non-blocking, this instantly returns -1 if no message is waiting.
+    int bytes_read = read(socket_fd_, &frame, sizeof(struct can_frame));
+    
+    return (bytes_read == sizeof(struct can_frame));
+}
+
+} // namespace zeus_can_interface
