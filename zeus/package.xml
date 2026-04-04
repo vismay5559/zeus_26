@@ -12,8 +12,6 @@
   <exec_depend>zeus_description</exec_depend>
   <exec_depend>zeus_bringup</exec_depend>
   <exec_depend>zeus_gazebo</exec_depend>
-  <exec_depend>zeus_tests</exec_depend>
-  <exec_depend>zeus_moveit_config</exec_depend>
   <exec_depend>zeus_can_interface</exec_depend>
   <exec_depend>zeus_control_interface</exec_depend>
   <exec_depend>zeus_hardware_interface</exec_depend>
