@@ -24,6 +24,7 @@ find_package(zeus_can_interface REQUIRED)
 # ==============================================================================
 add_library(${PROJECT_NAME} SHARED
   src/zeus_system.cpp
+  src/encoder_utils.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE include)

@@ -1,78 +1,218 @@
-ROS code base to be run on rpi-model 5 on custom made 13 DOF biped with 10 custom series elastic actuators using odrive-s1 and brushless motors from cubemars.
+# Zeus Workspace
 
+ROS 2 workspace for the Zeus biped running on a Raspberry Pi 5.
 
-The repository structure -
+Current hardware direction in this repo:
+- 10 series-elastic actuators commanded over CAN
+- 2 CAN buses: joints `1-5` on `can0`, joints `6-10` on `can1`
+- 10 daisy-chained AS5048A absolute after-spring encoders read over SPI
+- Gazebo and real-hardware packages live in the same workspace
 
-zeus_26/
-|
-├── .gitignore
-├── README.md               <-- Main documentation for the whole workspace
-├── LICENSE                 <-- Global workspace license (e.g., Apache 2.0 or MIT)
-│
-├── zeus/                   <-- THE METAPACKAGE (Installs the whole ecosystem)
+## Workspace Layout
+
+This is the current repository structure, including files and folders that are present but still empty.
+
+```text
+nexus_final_ws/
+├── LICENSE
+├── README.md
+├── zeus/
 │   ├── CMakeLists.txt
-│   ├── package.xml         <-- Contains dependencies for all other zeus_* packages
+│   ├── LICENSE
 │   ├── README.md
-│   └── LICENSE
-│
-├── zeus_bringup/           <-- EVERYONE shares this
-│   ├── launch/
-│   │   ├── hardware.launch.py   (Your launch file)
-│   │   └── sim.launch.py        (Vedant's launch file)
+│   └── package.xml
+├── zeus_bringup/
+│   ├── CMakeLists.txt
+│   ├── LICENSE
+│   ├── README.md
 │   ├── config/
 │   │   └── zeus_controllers.yaml
+│   ├── launch/
+│   │   ├── hardware.launch.py
+│   │   └── sim.launch.py
+│   └── package.xml
+├── zeus_can_interface/
 │   ├── CMakeLists.txt
-│   ├── package.xml
+│   ├── LICENSE
 │   ├── README.md
-│   └── LICENSE
-│
-├── zeus_description/       <-- SURYANSHU'S sandbox
-│   ├── meshes/             <-- He drops his CAD exports (.stl or .dae) here
-│   ├── urdf/
-│   │   ├── zeus.urdf.xacro <-- The physical blueprint
-│   │   └── zeus.ros2_control.xacro <-- Hardware/Sim toggles
-|   ├── launch/ 
-|   |   └── dispay.launch.py
-|   ├── rviz/ 
+│   ├── include/
+│   │   └── zeus_can_interface/
+│   │       └── socketcan.hpp
+│   ├── package.xml
+│   └── src/
+│       └── socketcan.cpp
+├── zeus_control_interface/
+│   ├── LICENSE
+│   ├── README.md
+│   ├── package.xml
+│   ├── resource/
+│   │   └── zeus_control_interface
+│   ├── setup.cfg
+│   ├── setup.py
+│   └── zeus_control_interface/
+│       ├── __init__.py
+│       └── rl_policy_node.py
+├── zeus_description/
 │   ├── CMakeLists.txt
-│   ├── package.xml
+│   ├── LICENSE
 │   ├── README.md
-│   └── LICENSE
-│
-├── zeus_gazebo/            <-- VEDANT'S sandbox
-│   ├── worlds/             <-- Training environments (stairs, flat ground)
+│   ├── launch/
+│   │   └── display.launch.py
+│   ├── meshes/
+│   ├── package.xml
+│   ├── rviz/
+│   └── urdf/
+│       ├── zeus.ros2_control.xacro
+│       └── zeus.urdf.xacro
+├── zeus_gazebo/
+│   ├── CMakeLists.txt
+│   ├── LICENSE
+│   ├── README.md
+│   ├── launch/
 │   ├── models/
-│   ├── CMakeLists.txt
 │   ├── package.xml
-│   ├── README.md
-│   └── LICENSE
-│
-├── zeus_can_interface/     <-- YOUR sandbox (Standalone Library)
-│   ├── include/zeus_can_interface/
-│   │   └── socketcan.hpp
-│   ├── src/
-│   │   └── socketcan.cpp
-│   ├── CMakeLists.txt
-│   ├── package.xml
-│   ├── README.md
-│   └── LICENSE
-│
-├── zeus_hardware_interface/<-- YOUR sandbox (ROS 2 Plugin)
-│   ├── include/zeus_hardware_interface/
-│   │   └── zeus_system.hpp
-│   ├── src/
-│   │   └── zeus_system.cpp
-│   ├── zeus_hardware_interface.xml
-│   ├── CMakeLists.txt
-│   ├── package.xml
-│   ├── README.md
-│   └── LICENSE
-│
-└── zeus_control_interface/ <-- AI Sandbox (Python)
-    ├── zeus_control_interface/
-    │   └── rl_policy_node.py
-    ├── setup.py
-    ├── package.xml
-    ├── README.md
+│   └── worlds/
+└── zeus_hardware_interface/
     ├── CMakeLists.txt
-    └── LICENSE
+    ├── LICENSE
+    ├── README.Md
+    ├── include/
+    │   └── zeus_hardware_interface/
+    │       ├── encoder_utils.hpp
+    │       └── zeus_system.hpp
+    ├── package.xml
+    ├── src/
+    │   ├── encoder_utils.cpp
+    │   └── zeus_system.cpp
+    └── zeus_hardware_interface.xml
+```
+
+Generated local build artifacts also exist in this workspace:
+- `build/`
+- `install/`
+- `log/`
+
+These are created by `colcon` and are not part of the source layout itself.
+
+## Package Roles
+
+### `zeus`
+Metapackage that depends on the other `zeus_*` packages.
+
+### `zeus_bringup`
+Place for launch files and controller config.
+
+Current contents:
+- [zeus_controllers.yaml](/home/vismay/nexus_final_ws/zeus_bringup/config/zeus_controllers.yaml): sets `controller_manager` update rate to `1000 Hz`, exposes `after_spring_angle` through `joint_state_broadcaster`, and accepts `target_actuator_angle` through a forward command controller
+- [hardware.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/hardware.launch.py): currently empty
+- [sim.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/sim.launch.py): currently empty
+
+### `zeus_can_interface`
+Low-level CAN transport package.
+
+Main files:
+- [socketcan.hpp](/home/vismay/nexus_final_ws/zeus_can_interface/include/zeus_can_interface/socketcan.hpp)
+- [socketcan.cpp](/home/vismay/nexus_final_ws/zeus_can_interface/src/socketcan.cpp)
+
+What it currently does:
+- opens a Linux SocketCAN raw socket
+- binds to a specific interface such as `can0` or `can1`
+- packs and sends ODESC `Set_Input_Pos` frames
+- exposes a non-blocking `read_frame()` helper for future CAN telemetry
+
+### `zeus_control_interface`
+Python-side control package.
+
+Current state:
+- package scaffolding is present
+- [rl_policy_node.py](/home/vismay/nexus_final_ws/zeus_control_interface/zeus_control_interface/rl_policy_node.py) is currently empty
+
+### `zeus_description`
+Robot description package.
+
+Main files:
+- [zeus.ros2_control.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus.ros2_control.xacro): current hardware interface configuration
+- [zeus.urdf.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus.urdf.xacro): currently empty
+
+Current empty paths:
+- [display.launch.py](/home/vismay/nexus_final_ws/zeus_description/launch/display.launch.py)
+- `meshes/`
+- `rviz/`
+
+### `zeus_gazebo`
+Simulation package intended for Gazebo integration.
+
+Current state:
+- package scaffolding is present
+- `launch/`, `models/`, and `worlds/` currently exist but are empty
+
+### `zeus_hardware_interface`
+ROS 2 hardware plugin that bridges ROS control to CAN and SPI.
+
+Main files:
+- [zeus_system.hpp](/home/vismay/nexus_final_ws/zeus_hardware_interface/include/zeus_hardware_interface/zeus_system.hpp)
+- [zeus_system.cpp](/home/vismay/nexus_final_ws/zeus_hardware_interface/src/zeus_system.cpp)
+- [encoder_utils.hpp](/home/vismay/nexus_final_ws/zeus_hardware_interface/include/zeus_hardware_interface/encoder_utils.hpp)
+- [encoder_utils.cpp](/home/vismay/nexus_final_ws/zeus_hardware_interface/src/encoder_utils.cpp)
+- [zeus_hardware_interface.xml](/home/vismay/nexus_final_ws/zeus_hardware_interface/zeus_hardware_interface.xml)
+
+What it currently does:
+- exports `target_actuator_angle` as the command interface
+- exports `after_spring_angle` as the state interface
+- opens both `can0` and `can1`
+- routes joints `0-4` to `can0` and joints `5-9` to `can1` by configuration
+- reads the AS5048A encoder daisy chain over SPI
+- maps encoder readings back to joint states
+- low-pass filters the after-spring angle before publishing it to ROS 2
+
+## Current Hardware Flow
+
+The intended real-hardware control path in this workspace is:
+
+1. A ROS 2 controller writes `target_actuator_angle`.
+2. `zeus_hardware_interface` receives that command.
+3. The command is smoothed/interpolated inside the hardware interface.
+4. The target is sent over CAN using `zeus_can_interface`.
+5. ODESC receives `Set_Input_Pos` commands on either `can0` or `can1`.
+6. SPI reads the 10 after-spring encoders.
+7. The filtered encoder angle is published as `after_spring_angle`.
+
+## Current `ros2_control` Configuration
+
+The hardware description in [zeus.ros2_control.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus.ros2_control.xacro) currently sets:
+
+- `can0` for joints `joint_0` to `joint_4`
+- `can1` for joints `joint_5` to `joint_9`
+- `node_id` `1..5` on each CAN bus
+- SPI device `/dev/spidev1.0`
+- SPI speed `1000000`
+- SPI mode `1`
+- `10` daisy-chained encoders
+- direct encoder-to-joint map `0,1,2,3,4,5,6,7,8,9`
+
+## Build
+
+Typical workspace build:
+
+```bash
+colcon build
+source install/setup.bash
+```
+
+Focused rebuild for the hardware path:
+
+```bash
+colcon build --packages-select zeus_can_interface zeus_hardware_interface
+source install/setup.bash
+```
+
+## Current Gaps
+
+A few important source files are still placeholders:
+- [zeus_bringup/launch/hardware.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/hardware.launch.py)
+- [zeus_bringup/launch/sim.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/sim.launch.py)
+- [zeus_description/launch/display.launch.py](/home/vismay/nexus_final_ws/zeus_description/launch/display.launch.py)
+- [zeus_description/urdf/zeus.urdf.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus.urdf.xacro)
+- [zeus_control_interface/zeus_control_interface/rl_policy_node.py](/home/vismay/nexus_final_ws/zeus_control_interface/zeus_control_interface/rl_policy_node.py)
+
+So right now the strongest implemented part of the repo is the hardware-side CAN/SPI stack and the ROS 2 hardware plugin around it.

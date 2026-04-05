@@ -1,4 +1,5 @@
 #include "zeus_hardware_interface/zeus_system.hpp"
+#include "zeus_hardware_interface/encoder_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -31,36 +32,23 @@ hardware_interface::CallbackReturn ZeusSystemHardware::on_init(
     info_.hardware_parameters.at("can0") : "can0";
   can1_name_ = info_.hardware_parameters.count("can1") ?
     info_.hardware_parameters.at("can1") : "can1";
-  spi_device_ = info_.hardware_parameters.count("spi_device") ?
-    info_.hardware_parameters.at("spi_device") : "/dev/spidev0.0";
 
-  if (info_.hardware_parameters.count("spi_speed_hz")) {
-    spi_speed_hz_ = static_cast<uint32_t>(std::stoul(info_.hardware_parameters.at("spi_speed_hz")));
+  encoder_spi_device_ = info_.hardware_parameters.count("encoder_spi_device") ?
+    info_.hardware_parameters.at("encoder_spi_device") : "/dev/spidev0.1";
+
+  if (info_.hardware_parameters.count("encoder_spi_speed_hz")) {
+    encoder_spi_speed_hz_ = static_cast<uint32_t>(std::stoul(
+      info_.hardware_parameters.at("encoder_spi_speed_hz")));
   }
-  if (info_.hardware_parameters.count("spi_mode")) {
-    spi_mode_ = static_cast<uint8_t>(std::stoul(info_.hardware_parameters.at("spi_mode")));
+
+  if (info_.hardware_parameters.count("encoder_spi_mode")) {
+    encoder_spi_mode_ = static_cast<uint8_t>(std::stoul(
+      info_.hardware_parameters.at("encoder_spi_mode")));
   }
-  if (info_.hardware_parameters.count("spi_bits_per_word")) {
-    spi_bits_per_word_ = static_cast<uint8_t>(
-      std::stoul(info_.hardware_parameters.at("spi_bits_per_word")));
-  }
-  if (info_.hardware_parameters.count("spi_word_size_bytes")) {
-    spi_word_size_bytes_ = static_cast<uint8_t>(
-      std::stoul(info_.hardware_parameters.at("spi_word_size_bytes")));
-  }
-  if (info_.hardware_parameters.count("spi_angle_bits")) {
-    spi_angle_bits_ = static_cast<uint8_t>(std::stoul(info_.hardware_parameters.at("spi_angle_bits")));
-  }
-  if (info_.hardware_parameters.count("spi_angle_lsb_shift")) {
-    spi_angle_lsb_shift_ = static_cast<uint8_t>(
-      std::stoul(info_.hardware_parameters.at("spi_angle_lsb_shift")));
-  }
-  if (info_.hardware_parameters.count("spi_tx_word")) {
-    spi_tx_word_ = static_cast<uint16_t>(std::stoul(info_.hardware_parameters.at("spi_tx_word"), nullptr, 0));
-  }
-  if (info_.hardware_parameters.count("spi_reverse_encoder_order")) {
-    const auto & value = info_.hardware_parameters.at("spi_reverse_encoder_order");
-    spi_reverse_encoder_order_ = (value == "true" || value == "1");
+
+  if (info_.hardware_parameters.count("num_daisy_encoders")) {
+    num_daisy_encoders_ = static_cast<std::size_t>(std::stoul(
+      info_.hardware_parameters.at("num_daisy_encoders")));
   }
 
   const std::size_t joint_count = info_.joints.size();
@@ -68,8 +56,11 @@ hardware_interface::CallbackReturn ZeusSystemHardware::on_init(
   hw_commands_.assign(joint_count, 0.0);
   current_interpolated_targets_.assign(joint_count, 0.0);
   spi_positions_buffer_.assign(joint_count, 0.0);
-  spi_tx_buffer_.assign(joint_count * spi_word_size_bytes_, 0);
-  spi_rx_buffer_.assign(joint_count * spi_word_size_bytes_, 0);
+
+  // Pre-allocate zero-copy SPI buffers (0xFF triggers angle read)
+  spi_tx_buffer_.assign(num_daisy_encoders_ * 2, 0xFF);
+  spi_rx_buffer_.assign(num_daisy_encoders_ * 2, 0x00);
+
   joint_node_ids_.resize(joint_count);
   joint_uses_can0_.resize(joint_count);
 
@@ -86,6 +77,78 @@ hardware_interface::CallbackReturn ZeusSystemHardware::on_init(
     }
   }
 
+  encoder_joint_map_.resize(num_daisy_encoders_);
+  for (std::size_t i = 0; i < num_daisy_encoders_; ++i) {
+    encoder_joint_map_[i] = i < joint_count ? i : 0;
+  }
+  
+  if (info_.hardware_parameters.count("encoder_to_joint_map")) {
+    const auto & map_str = info_.hardware_parameters.at("encoder_to_joint_map");
+    encoder_joint_map_.clear();
+    std::size_t pos = 0;
+    std::size_t comma_pos;
+    while ((comma_pos = map_str.find(',', pos)) != std::string::npos) {
+      encoder_joint_map_.push_back(std::stoul(map_str.substr(pos, comma_pos - pos)));
+      pos = comma_pos + 1;
+    }
+    encoder_joint_map_.push_back(std::stoul(map_str.substr(pos)));
+  }
+
+  // Bounds validation
+  if (encoder_joint_map_.size() != num_daisy_encoders_) {
+    RCLCPP_ERROR(rclcpp::get_logger("ZeusSystemHardware"), "encoder_to_joint_map length mismatch.");
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  for (std::size_t mapped_joint : encoder_joint_map_) {
+    if (mapped_joint >= joint_count) {
+      RCLCPP_ERROR(rclcpp::get_logger("ZeusSystemHardware"), "encoder_to_joint_map contains out-of-bounds joint index.");
+      return hardware_interface::CallbackReturn::ERROR;
+    }
+  }
+
+  return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+hardware_interface::CallbackReturn ZeusSystemHardware::on_configure(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  if (!can0_driver_.open_port(can0_name_)) {
+    RCLCPP_ERROR(rclcpp::get_logger("ZeusSystemHardware"), "Failed to open CAN interface %s", can0_name_.c_str());
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  if (!can1_driver_.open_port(can1_name_)) {
+    RCLCPP_ERROR(rclcpp::get_logger("ZeusSystemHardware"), "Failed to open CAN interface %s", can1_name_.c_str());
+    can0_driver_.close_port();
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  encoder_spi_fd_ = encoder_utils::open_as5048a_spi(
+    encoder_spi_device_, encoder_spi_mode_, encoder_spi_speed_hz_);
+  
+  if (encoder_spi_fd_ < 0) {
+    RCLCPP_ERROR(rclcpp::get_logger("ZeusSystemHardware"), "Failed to open encoder SPI device %s", encoder_spi_device_.c_str());
+    can1_driver_.close_port();
+    can0_driver_.close_port();
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  RCLCPP_INFO(rclcpp::get_logger("ZeusSystemHardware"),
+    "Successfully configured hardware: CAN0=%s, CAN1=%s, Encoder SPI=%s",
+    can0_name_.c_str(), can1_name_.c_str(), encoder_spi_device_.c_str());
+
+  return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+hardware_interface::CallbackReturn ZeusSystemHardware::on_cleanup(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  close_encoder_spi();
+  can1_driver_.close_port();
+  can0_driver_.close_port();
+
+  RCLCPP_INFO(rclcpp::get_logger("ZeusSystemHardware"), "Hardware cleaned up successfully");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -118,43 +181,26 @@ std::vector<hardware_interface::CommandInterface> ZeusSystemHardware::export_com
 hardware_interface::CallbackReturn ZeusSystemHardware::on_activate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  if (!can0_driver_.open_port(can0_name_)) {
-    RCLCPP_ERROR(rclcpp::get_logger("ZeusSystemHardware"),
-      "Failed to open CAN interface %s", can0_name_.c_str());
+  if (encoder_spi_fd_ < 0) {
+    RCLCPP_ERROR(rclcpp::get_logger("ZeusSystemHardware"), "Encoder SPI not open; on_configure may have failed");
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  if (!can1_driver_.open_port(can1_name_)) {
-    RCLCPP_ERROR(rclcpp::get_logger("ZeusSystemHardware"),
-      "Failed to open CAN interface %s", can1_name_.c_str());
-    can0_driver_.close_port();
-    return hardware_interface::CallbackReturn::ERROR;
-  }
-
-  if (!open_spi_port()) {
-    RCLCPP_ERROR(rclcpp::get_logger("ZeusSystemHardware"),
-      "Failed to open SPI encoder chain on %s", spi_device_.c_str());
-    can1_driver_.close_port();
-    can0_driver_.close_port();
-    return hardware_interface::CallbackReturn::ERROR;
-  }
-
+  RCLCPP_INFO(rclcpp::get_logger("ZeusSystemHardware"), "Hardware activated");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 hardware_interface::CallbackReturn ZeusSystemHardware::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  close_spi_port();
-  can1_driver_.close_port();
-  can0_driver_.close_port();
+  RCLCPP_INFO(rclcpp::get_logger("ZeusSystemHardware"), "Hardware deactivated");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 hardware_interface::return_type ZeusSystemHardware::read(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  if (!read_spi_encoder_positions(spi_positions_buffer_)) {
+  if (!read_as5048a_encoder_chain(spi_positions_buffer_)) {
     return hardware_interface::return_type::ERROR;
   }
 
@@ -170,111 +216,58 @@ hardware_interface::return_type ZeusSystemHardware::read(
 hardware_interface::return_type ZeusSystemHardware::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  bool write_ok = true;
-
   for (std::size_t i = 0; i < info_.joints.size(); ++i) {
     const double step_size = (hw_commands_[i] - current_interpolated_targets_[i]) * 0.25;
     current_interpolated_targets_[i] += step_size;
 
     auto & can_driver = use_can0_for_joint(i) ? can0_driver_ : can1_driver_;
     const uint32_t node_id = node_id_for_joint(i);
-    if (!can_driver.send_position_target(
-        node_id, static_cast<float>(current_interpolated_targets_[i]))) {
-      write_ok = false;
-    }
+    
+    can_driver.send_position_target(node_id, static_cast<float>(current_interpolated_targets_[i]));
+    // Soft error handling: Missed frames on a non-blocking socket are ignored to maintain 1kHz continuity.
   }
 
-  return write_ok ? hardware_interface::return_type::OK : hardware_interface::return_type::ERROR;
+  return hardware_interface::return_type::OK;
 }
 
-bool ZeusSystemHardware::open_spi_port()
+void ZeusSystemHardware::close_encoder_spi()
 {
-  close_spi_port();
-
-  spi_fd_ = open(spi_device_.c_str(), O_RDWR);
-  if (spi_fd_ < 0) {
-    return false;
-  }
-
-  if (ioctl(spi_fd_, SPI_IOC_WR_MODE, &spi_mode_) < 0 ||
-      ioctl(spi_fd_, SPI_IOC_RD_MODE, &spi_mode_) < 0 ||
-      ioctl(spi_fd_, SPI_IOC_WR_BITS_PER_WORD, &spi_bits_per_word_) < 0 ||
-      ioctl(spi_fd_, SPI_IOC_RD_BITS_PER_WORD, &spi_bits_per_word_) < 0 ||
-      ioctl(spi_fd_, SPI_IOC_WR_MAX_SPEED_HZ, &spi_speed_hz_) < 0 ||
-      ioctl(spi_fd_, SPI_IOC_RD_MAX_SPEED_HZ, &spi_speed_hz_) < 0) {
-    close_spi_port();
-    return false;
-  }
-
-  return true;
+  encoder_utils::close_as5048a_spi(encoder_spi_fd_);
+  encoder_spi_fd_ = -1;
 }
 
-void ZeusSystemHardware::close_spi_port()
+bool ZeusSystemHardware::read_as5048a_encoder_chain(std::vector<double> & positions)
 {
-  if (spi_fd_ >= 0) {
-    close(spi_fd_);
-    spi_fd_ = -1;
-  }
-}
-
-bool ZeusSystemHardware::read_spi_encoder_positions(std::vector<double> & positions)
-{
-  if (spi_fd_ < 0 || spi_word_size_bytes_ == 0 || spi_angle_bits_ == 0 || spi_angle_bits_ > 16) {
+  if (encoder_spi_fd_ < 0 || num_daisy_encoders_ == 0) {
     return false;
   }
 
-  const std::size_t encoder_count = info_.joints.size();
-  const std::size_t transfer_size = encoder_count * spi_word_size_bytes_;
-  if (spi_tx_buffer_.size() != transfer_size) {
-    spi_tx_buffer_.assign(transfer_size, 0);
-  }
-  if (spi_rx_buffer_.size() != transfer_size) {
-    spi_rx_buffer_.assign(transfer_size, 0);
-  }
-
-  std::fill(spi_tx_buffer_.begin(), spi_tx_buffer_.end(), 0);
-  std::fill(spi_rx_buffer_.begin(), spi_rx_buffer_.end(), 0);
-
-  for (std::size_t offset = 0; offset < transfer_size; offset += spi_word_size_bytes_) {
-    if (spi_word_size_bytes_ >= 1) {
-      spi_tx_buffer_[offset] = static_cast<uint8_t>((spi_tx_word_ >> 8) & 0xFF);
-    }
-    if (spi_word_size_bytes_ >= 2) {
-      spi_tx_buffer_[offset + 1] = static_cast<uint8_t>(spi_tx_word_ & 0xFF);
-    }
-  }
-
-  struct spi_ioc_transfer transfer;
-  std::memset(&transfer, 0, sizeof(transfer));
-  transfer.tx_buf = reinterpret_cast<unsigned long>(spi_tx_buffer_.data());
-  transfer.rx_buf = reinterpret_cast<unsigned long>(spi_rx_buffer_.data());
-  transfer.len = static_cast<uint32_t>(transfer_size);
-  transfer.speed_hz = spi_speed_hz_;
-  transfer.bits_per_word = spi_bits_per_word_;
-
-  if (ioctl(spi_fd_, SPI_IOC_MESSAGE(1), &transfer) < 0) {
+  std::vector<uint16_t> raw_words;
+  if (!encoder_utils::read_as5048a_daisy_chain(
+      encoder_spi_fd_, num_daisy_encoders_, spi_tx_buffer_, spi_rx_buffer_, raw_words)) {
     return false;
   }
 
-  const uint16_t angle_mask = static_cast<uint16_t>((1u << spi_angle_bits_) - 1u);
-  const double counts_per_turn = static_cast<double>(1u << spi_angle_bits_);
-  positions.assign(encoder_count, 0.0);
+  // Preserve state by default; overwrite only valid measurements.
+  for (std::size_t i = 0; i < num_daisy_encoders_ && i < raw_words.size(); ++i) {
+    encoder_utils::AS5048AWord word;
+    word.raw = raw_words[i];
 
-  for (std::size_t i = 0; i < encoder_count; ++i) {
-    const std::size_t source_index = spi_reverse_encoder_order_ ? (encoder_count - 1U - i) : i;
-    const std::size_t offset = source_index * spi_word_size_bytes_;
-
-    uint16_t raw_word = 0;
-    if (spi_word_size_bytes_ >= 1) {
-      raw_word = static_cast<uint16_t>(spi_rx_buffer_[offset]) << 8;
-    }
-    if (spi_word_size_bytes_ >= 2) {
-      raw_word |= static_cast<uint16_t>(spi_rx_buffer_[offset + 1]);
+    // Frame Validation & Parity Checking
+    if (word.error() || word.mag_too_weak() || word.mag_too_strong() || 
+        !encoder_utils::validate_as5048a_parity(word)) {
+      continue; // Corrupted frame: hold last known good value
     }
 
-    raw_word = static_cast<uint16_t>(raw_word >> spi_angle_lsb_shift_);
-    const uint16_t raw_angle = static_cast<uint16_t>(raw_word & angle_mask);
-    positions[i] = (static_cast<double>(raw_angle) / counts_per_turn) * kTwoPi;
+    const uint16_t raw_angle = word.angle();
+    const double angle_rad = encoder_utils::as5048a_raw_to_radians(raw_angle);
+
+    std::size_t physical_encoder_idx = (num_daisy_encoders_ - 1) - i;
+
+    if (physical_encoder_idx < encoder_joint_map_.size()) {
+      const std::size_t joint_idx = encoder_joint_map_[physical_encoder_idx];
+      positions[joint_idx] = angle_rad;
+    }
   }
 
   return true;

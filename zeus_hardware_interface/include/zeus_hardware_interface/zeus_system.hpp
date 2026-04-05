@@ -16,6 +16,8 @@ class ZeusSystemHardware : public hardware_interface::SystemInterface
 {
 public:
   hardware_interface::CallbackReturn on_init(const hardware_interface::HardwareInfo & info) override;
+  hardware_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State & previous_state) override;
+  hardware_interface::CallbackReturn on_cleanup(const rclcpp_lifecycle::State & previous_state) override;
   hardware_interface::CallbackReturn on_activate(const rclcpp_lifecycle::State & previous_state) override;
   hardware_interface::CallbackReturn on_deactivate(const rclcpp_lifecycle::State & previous_state) override;
 
@@ -26,9 +28,8 @@ public:
   hardware_interface::return_type write(const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
 private:
-  bool open_spi_port();
-  void close_spi_port();
-  bool read_spi_encoder_positions(std::vector<double> & positions);
+  void close_encoder_spi();
+  bool read_as5048a_encoder_chain(std::vector<double> & positions);
   bool use_can0_for_joint(std::size_t joint_index) const;
   uint32_t node_id_for_joint(std::size_t joint_index) const;
 
@@ -46,18 +47,22 @@ private:
 
   std::string can0_name_ = "can0";
   std::string can1_name_ = "can1";
-  std::string spi_device_ = "/dev/spidev0.0";
-  int spi_fd_ = -1;
-  uint32_t spi_speed_hz_ = 1000000;
-  uint8_t spi_mode_ = 1;
-  uint8_t spi_bits_per_word_ = 8;
-  uint8_t spi_word_size_bytes_ = 2;
-  uint8_t spi_angle_bits_ = 14;
-  uint8_t spi_angle_lsb_shift_ = 0;
-  uint16_t spi_tx_word_ = 0x0000;
-  bool spi_reverse_encoder_order_ = false;
+  
+  // AS5048A Encoder daisy-chain SPI configuration
+  std::string encoder_spi_device_ = "/dev/spidev0.1";
+  int encoder_spi_fd_ = -1;
+  uint32_t encoder_spi_speed_hz_ = 1000000;
+  uint8_t encoder_spi_mode_ = 1;
+  uint8_t encoder_spi_bits_per_word_ = 8;
+  std::size_t num_daisy_encoders_ = 10;
+  std::vector<std::size_t> encoder_joint_map_;  // Maps encoder position to joint index
 
   static constexpr double LOW_PASS_ALPHA = 0.2;
+  static constexpr std::size_t AS5048A_WORD_SIZE_BYTES = 2;
+  static constexpr std::size_t AS5048A_ANGLE_BITS = 13;  // 13-bit angle (0-8192)
+  static constexpr uint16_t AS5048A_ANGLE_MASK = 0x1FFF;  // 13-bit mask
+  static constexpr uint16_t AS5048A_PARITY_BIT = 0x8000;  // Bit 15
+  static constexpr uint16_t AS5048A_ERROR_BIT = 0x0100;   // Bit 8
 };
 
 } // namespace zeus_hardware_interface

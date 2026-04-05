@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+<xacro:macro name="zeus_system_hardware">
+    <hardware>
+      <plugin>zeus_hardware_interface/ZeusSystemHardware</plugin>
+      
+      <param name="can0">can0</param>
+      <param name="can1">can1</param>
+      
+      <!-- AS5048A Encoder Daisy-Chain SPI Configuration -->
+      <param name="encoder_spi_device">/dev/spidev1.0</param>
+      <param name="encoder_spi_speed_hz">1000000</param>
+      <param name="encoder_spi_mode">1</param>
+      <param name="num_daisy_encoders">10</param>
+      
+      <!-- Encoder to Joint Mapping (position 0-9 maps to joint 0-9) -->
+      <param name="encoder_to_joint_map">0,1,2,3,4,5,6,7,8,9</param>
+
+      <!-- Joint Definitions -->
+      <joint name="joint_0">
+        <command_interface name="target_actuator_angle"/>
+        <state_interface name="after_spring_angle"/>
+        <param name="can_bus">can0</param>
+        <param name="node_id">1</param>
+      </joint>
+
+      <joint name="joint_1">
+        <command_interface name="target_actuator_angle"/>
+        <state_interface name="after_spring_angle"/>
+        <param name="can_bus">can0</param>
+        <param name="node_id">2</param>
+      </joint>
+
+      <joint name="joint_2">
+        <command_interface name="target_actuator_angle"/>
+        <state_interface name="after_spring_angle"/>
+        <param name="can_bus">can0</param>
+        <param name="node_id">3</param>
+      </joint>
+
+      <joint name="joint_3">
+        <command_interface name="target_actuator_angle"/>
+        <state_interface name="after_spring_angle"/>
+        <param name="can_bus">can0</param>
+        <param name="node_id">4</param>
+      </joint>
+
+      <joint name="joint_4">
+        <command_interface name="target_actuator_angle"/>
+        <state_interface name="after_spring_angle"/>
+        <param name="can_bus">can0</param>
+        <param name="node_id">5</param>
+      </joint>
+
+      <joint name="joint_5">
+        <command_interface name="target_actuator_angle"/>
+        <state_interface name="after_spring_angle"/>
+        <param name="can_bus">can1</param>
+        <param name="node_id">1</param>
+      </joint>
+
+      <joint name="joint_6">
+        <command_interface name="target_actuator_angle"/>
+        <state_interface name="after_spring_angle"/>
+        <param name="can_bus">can1</param>
+        <param name="node_id">2</param>
+      </joint>
+
+      <joint name="joint_7">
+        <command_interface name="target_actuator_angle"/>
+        <state_interface name="after_spring_angle"/>
+        <param name="can_bus">can1</param>
+        <param name="node_id">3</param>
+      </joint>
+
+      <joint name="joint_8">
+        <command_interface name="target_actuator_angle"/>
+        <state_interface name="after_spring_angle"/>
+        <param name="can_bus">can1</param>
+        <param name="node_id">4</param>
+      </joint>
+
+      <joint name="joint_9">
+        <command_interface name="target_actuator_angle"/>
+        <state_interface name="after_spring_angle"/>
+        <param name="can_bus">can1</param>
+        <param name="node_id">5</param>
+      </joint>
+
+    </hardware>
+  </xacro:macro>
+
+</robot>
