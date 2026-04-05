@@ -87,12 +87,6 @@ nexus_final_ws/
     └── zeus_hardware_interface.xml
 ```
 
-Generated local build artifacts also exist in this workspace:
-- `build/`
-- `install/`
-- `log/`
-
-These are created by `colcon` and are not part of the source layout itself.
 
 ## Package Roles
 
