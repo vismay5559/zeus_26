@@ -128,8 +128,8 @@ Current state:
 Robot description package.
 
 Main files:
-- [zeus.ros2_control.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus_ros2_control.xacro): current hardware interface configuration
-- [zeus.urdf.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus_urdf.xacro): currently empty
+- [zeus_ros2_control.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus_ros2_control.xacro): current hardware interface configuration
+- [zeus_urdf.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus_urdf.xacro): currently empty
 
 Current empty paths:
 - [display.launch.py](/home/vismay/nexus_final_ws/zeus_description/launch/display.launch.py)
