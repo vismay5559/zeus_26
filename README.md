@@ -26,6 +26,7 @@ nexus_final_ws/
 │   ├── LICENSE
 │   ├── README.md
 │   ├── config/
+│   │   ├── fastdds_shm.xml
 │   │   └── zeus_controllers.yaml
 │   ├── launch/
 │   │   ├── hardware.launch.py
@@ -98,7 +99,8 @@ Place for launch files and controller config.
 
 Current contents:
 - [zeus_controllers.yaml](/home/vismay/nexus_final_ws/zeus_bringup/config/zeus_controllers.yaml): sets `controller_manager` update rate to `1000 Hz`, exposes `after_spring_angle` through `joint_state_broadcaster`, and accepts `target_actuator_angle` through a forward command controller
-- [hardware.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/hardware.launch.py): currently empty
+- [fastdds_shm.xml](/home/vismay/nexus_final_ws/zeus_bringup/config/fastdds_shm.xml): Fast DDS profile that forces shared-memory-only transport so the Python RL node and C++ ROS 2 nodes can communicate through SHM on the same machine
+- [hardware.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/hardware.launch.py): sets `FASTRTPS_DEFAULT_PROFILES_FILE` to the shared-memory profile, launches `ros2_control_node`, and launches `zeus_control_interface/rl_policy_node`
 - [sim.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/sim.launch.py): currently empty
 
 ### `zeus_can_interface`
@@ -120,6 +122,7 @@ Python-side control package.
 Current state:
 - package scaffolding is present
 - [rl_policy_node.py](/home/vismay/nexus_final_ws/zeus_control_interface/zeus_control_interface/rl_policy_node.py) is currently empty
+- the top-level hardware launch already reserves a launch slot for this node
 
 ### `zeus_description`
 Robot description package.
@@ -163,13 +166,31 @@ What it currently does:
 
 The intended real-hardware control path in this workspace is:
 
-1. A ROS 2 controller writes `target_actuator_angle`.
-2. `zeus_hardware_interface` receives that command.
-3. The command is smoothed/interpolated inside the hardware interface.
-4. The target is sent over CAN using `zeus_can_interface`.
-5. ODESC receives `Set_Input_Pos` commands on either `can0` or `can1`.
-6. SPI reads the 10 after-spring encoders.
-7. The filtered encoder angle is published as `after_spring_angle`.
+1. `hardware.launch.py` exports `FASTRTPS_DEFAULT_PROFILES_FILE` pointing to [fastdds_shm.xml](/home/vismay/nexus_final_ws/zeus_bringup/config/fastdds_shm.xml).
+2. Fast DDS is configured to use shared memory only for nodes launched in that process tree.
+3. The Python RL side and the C++ ROS 2 side exchange command/state data through local SHM transport.
+4. A ROS 2 controller writes `target_actuator_angle`.
+5. `zeus_hardware_interface` receives that command.
+6. The command is smoothed/interpolated inside the hardware interface.
+7. The target is sent over CAN using `zeus_can_interface`.
+8. ODESC receives `Set_Input_Pos` commands on either `can0` or `can1`.
+9. SPI reads the 10 after-spring encoders.
+10. The filtered encoder angle is published as `after_spring_angle`.
+
+## Fast DDS Shared Memory
+
+The workspace now includes [fastdds_shm.xml](/home/vismay/nexus_final_ws/zeus_bringup/config/fastdds_shm.xml), which defines a Fast DDS participant profile named `shm_only_profile`.
+
+What it currently does:
+- disables builtin transports
+- enables only SHM transport
+- sets `maxMessageSize` to `65000`
+
+This is meant for low-latency communication between:
+- the Python RL process in `zeus_control_interface`
+- the C++ ROS 2 hardware/control side
+
+The SHM profile is applied from [hardware.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/hardware.launch.py) by setting the `FASTRTPS_DEFAULT_PROFILES_FILE` environment variable before launching nodes.
 
 ## Current `ros2_control` Configuration
 
@@ -203,10 +224,11 @@ source install/setup.bash
 ## Current Gaps
 
 A few important source files are still placeholders:
-- [zeus_bringup/launch/hardware.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/hardware.launch.py)
 - [zeus_bringup/launch/sim.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/sim.launch.py)
 - [zeus_description/launch/display.launch.py](/home/vismay/nexus_final_ws/zeus_description/launch/display.launch.py)
 - [zeus_description/urdf/zeus.urdf.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus.urdf.xacro)
 - [zeus_control_interface/zeus_control_interface/rl_policy_node.py](/home/vismay/nexus_final_ws/zeus_control_interface/zeus_control_interface/rl_policy_node.py)
 
-So right now the strongest implemented part of the repo is the hardware-side CAN/SPI stack and the ROS 2 hardware plugin around it.
+Also note that [hardware.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/hardware.launch.py) is no longer empty, but it still contains a placeholder comment where the full `ros2_control_node` parameters should be added.
+
+So right now the strongest implemented part of the repo is the hardware-side CAN/SPI stack, the ROS 2 hardware plugin around it, and the shared-memory bringup direction for Python/C++ communication.
