@@ -226,7 +226,7 @@ source install/setup.bash
 A few important source files are still placeholders:
 - [zeus_bringup/launch/sim.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/sim.launch.py)
 - [zeus_description/launch/display.launch.py](/home/vismay/nexus_final_ws/zeus_description/launch/display.launch.py)
-- [zeus_description/urdf/zeus.urdf.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus.urdf.xacro)
+- [zeus_description/urdf/zeus_urdf.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus.urdf.xacro)
 - [zeus_control_interface/zeus_control_interface/rl_policy_node.py](/home/vismay/nexus_final_ws/zeus_control_interface/zeus_control_interface/rl_policy_node.py)
 
 Also note that [hardware.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/hardware.launch.py) is no longer empty, but it still contains a placeholder comment where the full `ros2_control_node` parameters should be added.
