@@ -68,6 +68,8 @@ private:
   std::vector<double> odrive_torque_estimates_;
   std::vector<double> current_interpolated_targets_;
   std::vector<double> spi_positions_buffer_;
+  std::vector<uint8_t> spi_tx_buffer_;  // pre-allocated encoder SPI TX frame (0xFF × 2N bytes)
+  std::vector<uint8_t> spi_rx_buffer_;  // pre-allocated encoder SPI RX frame
   std::vector<uint32_t> joint_node_ids_;
   std::vector<bool> joint_uses_can0_;
   std::vector<double> sensor_states_;
@@ -82,29 +84,29 @@ private:
   bool has_imu_sensor_ = false;
   std::string imu_sensor_name_ = "imu";
   sensor_utils::BNO085Sample last_imu_sample_;
-  sensor_utils::BNO085SpiReader imu_reader_;
+  sensor_utils::BNO085UartReader imu_reader_;
 
-  std::string imu_spi_device_ = "/dev/spidev0.0";
-  uint32_t imu_spi_speed_hz_ = 1000000;
-  int imu_interrupt_gpio_ = -1;
+  // BNO085 UART configuration (GPIO14/15 → /dev/ttyAMA0, 3 Mbaud)
+  std::string imu_uart_device_ = "/dev/ttyAMA0";
+  uint32_t imu_uart_baud_rate_ = 3000000;
   int imu_reset_gpio_ = -1;
   uint32_t imu_report_interval_us_ = 2500;
 
-  // AS5048A Encoder daisy-chain SPI configuration
-  std::string encoder_spi_device_ = "/dev/spidev0.2";
+  // AS5048A encoder daisy-chain — SPI3 (/dev/spidev3.0, CAN-FD HAT owns SPI0+SPI1)
+  std::string encoder_spi_device_ = "/dev/spidev3.0";
   int encoder_spi_fd_ = -1;
   uint32_t encoder_spi_speed_hz_ = 1000000;
   uint8_t encoder_spi_mode_ = 1;
   uint8_t encoder_spi_bits_per_word_ = 8;
   std::size_t num_daisy_encoders_ = 10;
-  std::vector<std::size_t> encoder_joint_map_;  // Maps encoder position to joint index
+  std::vector<std::size_t> encoder_joint_map_;
 
   static constexpr double LOW_PASS_ALPHA = 0.2;
   static constexpr std::size_t AS5048A_WORD_SIZE_BYTES = 2;
-  static constexpr std::size_t AS5048A_ANGLE_BITS = 13;  // 13-bit angle (0-8192)
-  static constexpr uint16_t AS5048A_ANGLE_MASK = 0x1FFF;  // 13-bit mask
-  static constexpr uint16_t AS5048A_PARITY_BIT = 0x8000;  // Bit 15
-  static constexpr uint16_t AS5048A_ERROR_BIT = 0x0100;   // Bit 8
+  static constexpr std::size_t AS5048A_ANGLE_BITS = 13;
+  static constexpr uint16_t AS5048A_ANGLE_MASK = 0x1FFF;
+  static constexpr uint16_t AS5048A_PARITY_BIT = 0x8000;
+  static constexpr uint16_t AS5048A_ERROR_BIT  = 0x0100;
 };
 
 } // namespace zeus_hardware_interface

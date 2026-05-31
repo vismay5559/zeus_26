@@ -6,10 +6,8 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <linux/spi/spidev.h>
 #include <pluginlib/class_list_macros.hpp>
 #include <string>
-#include <sys/ioctl.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <fstream>
@@ -65,14 +63,11 @@ hardware_interface::CallbackReturn ZeusSystemHardware::on_init(
 
   imu_sensor_name_ = info_.hardware_parameters.count("imu_sensor_name") ?
     info_.hardware_parameters.at("imu_sensor_name") : "imu";
-  imu_spi_device_ = info_.hardware_parameters.count("imu_spi_device") ?
-    info_.hardware_parameters.at("imu_spi_device") : "/dev/spidev0.0";
-  if (info_.hardware_parameters.count("imu_spi_speed_hz")) {
-    imu_spi_speed_hz_ = static_cast<uint32_t>(std::stoul(
-      info_.hardware_parameters.at("imu_spi_speed_hz")));
-  }
-  if (info_.hardware_parameters.count("imu_int_gpio")) {
-    imu_interrupt_gpio_ = std::stoi(info_.hardware_parameters.at("imu_int_gpio"));
+  imu_uart_device_ = info_.hardware_parameters.count("imu_uart_device") ?
+    info_.hardware_parameters.at("imu_uart_device") : "/dev/ttyAMA0";
+  if (info_.hardware_parameters.count("imu_uart_baud_rate")) {
+    imu_uart_baud_rate_ = static_cast<uint32_t>(std::stoul(
+      info_.hardware_parameters.at("imu_uart_baud_rate")));
   }
   if (info_.hardware_parameters.count("imu_reset_gpio")) {
     imu_reset_gpio_ = std::stoi(info_.hardware_parameters.at("imu_reset_gpio"));
@@ -244,11 +239,10 @@ hardware_interface::CallbackReturn ZeusSystemHardware::on_configure(
   }
 
   if (has_imu_sensor_ && !imu_reader_.open_device(
-      imu_spi_device_, imu_spi_speed_hz_, imu_interrupt_gpio_, imu_reset_gpio_,
-      imu_report_interval_us_)) {
+      imu_uart_device_, imu_uart_baud_rate_, imu_reset_gpio_, imu_report_interval_us_)) {
     RCLCPP_ERROR(
       rclcpp::get_logger("ZeusSystemHardware"),
-      "Failed to open BNO085 IMU SPI device %s", imu_spi_device_.c_str());
+      "Failed to open BNO085 IMU UART device %s", imu_uart_device_.c_str());
     close_encoder_spi();
     can1_driver_.close_port();
     can0_driver_.close_port();
@@ -287,9 +281,9 @@ hardware_interface::CallbackReturn ZeusSystemHardware::on_configure(
   }
 
   RCLCPP_INFO(rclcpp::get_logger("ZeusSystemHardware"),
-    "Successfully configured hardware: CAN0=%s, CAN1=%s, Encoder SPI=%s, IMU SPI=%s, GPIO switches=%zu",
+    "Successfully configured hardware: CAN0=%s, CAN1=%s, Encoder SPI=%s, IMU UART=%s, GPIO switches=%zu",
     can0_name_.c_str(), can1_name_.c_str(), encoder_spi_device_.c_str(),
-    has_imu_sensor_ ? imu_spi_device_.c_str() : "disabled",
+    has_imu_sensor_ ? imu_uart_device_.c_str() : "disabled",
     gpio_switches_.size());
 
   return hardware_interface::CallbackReturn::SUCCESS;

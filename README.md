@@ -11,10 +11,11 @@ a full state estimate that a walking controller can consume.
 | Hardware | Details |
 |----------|---------|
 | **Actuators** | 10 × ODrive S1 brushless motor drivers, 5 per CAN bus (`can0` / `can1`) |
-| **After-spring encoders** | 10 × AS5048A 13-bit magnetic encoders, SPI daisy-chain on `/dev/spidev1.0` |
-| **IMU** | Adafruit BNO085, SHTP protocol over SPI on `/dev/spidev0.0` |
+| **CAN-FD HAT** | Waveshare dual-channel CAN-FD HAT in Mode A — 5 Mbps data phase, hijacks SPI0 + SPI1 |
+| **After-spring encoders** | 10 × AS5048A 13-bit magnetic encoders, SPI3 daisy-chain on `/dev/spidev3.0` |
+| **IMU** | Adafruit BNO085, SHTP protocol over hardware UART `/dev/ttyAMA0` at 3 Mbaud |
 | **Contact switches** | 4 × mechanical switches wired directly to Raspberry Pi GPIO pins |
-| **CAN buses** | 2 × SocketCAN (`can0`, `can1`), 500 kbit/s |
+| **CAN buses** | 2 × SocketCAN (`can0`, `can1`), CAN-FD at 5 Mbps data rate |
 
 ### Leg and Joint Mapping
 
@@ -36,12 +37,12 @@ Joint index │ Actuator         │ CAN bus │ ODrive node ID
 ### Contact Switch GPIO Pins (BCM numbering)
 
 ```
-Switch           │ GPIO pin
-─────────────────┼─────────
-left_toe_switch  │  17
-left_heel_switch │  27
-right_toe_switch │  22
-right_heel_switch│  23
+Switch            │ GPIO pin │ Physical pin
+──────────────────┼──────────┼─────────────
+left_toe_switch   │    4     │  Pin 7
+left_heel_switch  │    5     │  Pin 29
+right_toe_switch  │    6     │  Pin 31
+right_heel_switch │   13     │  Pin 33
 ```
 
 ---
@@ -116,11 +117,11 @@ Mechanical contact switches (4):
 
 ```
 controller_manager loop:    1000 Hz
-Actuator CAN commands:      1000 Hz
-AS5048A encoder reads:      1000 Hz
+Actuator CAN-FD commands:   1000 Hz   (5 Mbps data phase, near-zero bus contention)
+AS5048A encoder reads:      1000 Hz   (SPI3 burst, 20 bytes per cycle)
 GPIO contact switch reads:  1000 Hz   (pre-opened sysfs fd — no open() overhead)
 ODrive CAN telemetry:       1000 Hz
-BNO085 IMU reports:          400 Hz
+BNO085 IMU UART stream:      400 Hz   (3 Mbaud, FIFO-buffered, no clock stretching)
 Sensor fusion publish:       100 Hz
 ```
 
@@ -185,19 +186,44 @@ Key files:
 
 #### AS5048A Encoder Chain
 
-10 encoders daisy-chained on SPI. Each encoder returns a 13-bit angle (0–8191 counts = 0–2π radians). The driver reads all 10 in one 20-byte SPI transaction, applies parity checking, and runs a small first-order low-pass filter (α = 0.2) to reduce noise.
+10 encoders daisy-chained on **SPI3** (`/dev/spidev3.0`). SPI3 is used because the CAN-FD HAT in Mode A physically owns SPI0 (can0) and SPI1 (can1) for its 5 Mbps data link. SPI3 must be enabled by adding `dtoverlay=spi3-1cs` to `/boot/firmware/config.txt` on the Raspberry Pi.
+
+Each encoder returns a 13-bit angle (0–8191 counts = 0–2π radians). The driver reads all 10 in one 20-byte SPI burst, applies parity checking, and runs a small first-order low-pass filter (α = 0.2) to reduce noise.
+
+SPI3 wiring:
+
+```
+MOSI → GPIO2  (Pin 3)
+MISO → GPIO1  (Pin 28)
+SCLK → GPIO3  (Pin 5)
+CS0  → GPIO0  (Pin 27)   master chip-select for the daisy-chain
+```
 
 #### BNO085 IMU
 
-The BNO085 uses SHTP (Sensor Hub Transport Protocol) over SPI rather than simple registers. The driver enables three report types:
+The BNO085 is driven over **hardware UART** rather than SPI. SPI0 and SPI1 are occupied by the CAN-FD HAT, so the IMU is moved to the dedicated hardware UART peripheral on GPIO14/15, which feeds directly into the RP1's hardware FIFO with zero clock-stretching.
+
+The SHTP (Sensor Hub Transport Protocol) packet framing is identical to the SPI variant. The driver opens `/dev/ttyAMA0` at 3 Mbaud in raw mode (`cfmakeraw`), streams SHTP packets from the UART RX FIFO, and accumulates partial packets in an internal buffer between `read()` calls.
+
+Three report types are enabled at startup:
 - Rotation vector → `orientation.{x,y,z,w}`
 - Linear acceleration (gravity-removed) → `linear_acceleration.{x,y,z}`
 - Gyroscope → `angular_velocity.{x,y,z}`
 
-Default wiring in `zeus_ros2_control.xacro`:
+UART wiring:
+
 ```
-/dev/spidev0.0  1 MHz  INT=GPIO24  RESET=GPIO25  report_interval=2500µs
+TX (Pi → IMU RX) → GPIO14  (Pin 8)
+RX (Pi ← IMU TX) → GPIO15  (Pin 10)
+RESET            → GPIO25  (Pin 22)   optional but recommended
 ```
+
+Default config in `zeus_ros2_control.xacro`:
+```
+/dev/ttyAMA0   3000000 baud   RESET=GPIO25   report_interval=2500µs (400 Hz)
+```
+
+No INT pin is required on UART — the host reads whatever bytes are available each control cycle.
 
 #### Mechanical Contact Switches
 
@@ -533,10 +559,17 @@ candump can1
 
 # Check GPIO switch reading
 # Press a switch physically, then:
-cat /sys/class/gpio/gpio17/value    # left_toe
-cat /sys/class/gpio/gpio27/value    # left_heel
-cat /sys/class/gpio/gpio22/value    # right_toe
-cat /sys/class/gpio/gpio23/value    # right_heel
+cat /sys/class/gpio/gpio4/value     # left_toe
+cat /sys/class/gpio/gpio5/value     # left_heel
+cat /sys/class/gpio/gpio6/value     # right_toe
+cat /sys/class/gpio/gpio13/value    # right_heel
+
+# Check IMU UART stream
+stty -F /dev/ttyAMA0 3000000 raw
+hexdump -C /dev/ttyAMA0 | head -20    # should show SHTP packets at 400 Hz
+
+# Verify SPI3 encoder device exists (requires dtoverlay=spi3-1cs in config.txt)
+ls /dev/spidev3.0
 ```
 
 ---
@@ -544,19 +577,32 @@ cat /sys/class/gpio/gpio23/value    # right_heel
 ## Hardware Wiring Summary
 
 ```
-Raspberry Pi SPI0 (CE0) → /dev/spidev0.0 → BNO085 IMU
-Raspberry Pi SPI1 (CE0) → /dev/spidev1.0 → AS5048A encoder daisy-chain (10 encoders)
-
-Raspberry Pi GPIO 17 → left_toe_switch
-Raspberry Pi GPIO 27 → left_heel_switch
-Raspberry Pi GPIO 22 → right_toe_switch
-Raspberry Pi GPIO 23 → right_heel_switch
-
-Raspberry Pi CAN (via MCP2515 or similar) → can0 → ODrive nodes 1–5 (left leg + waist pitch)
-Raspberry Pi CAN (via MCP2515 or similar) → can1 → ODrive nodes 1–5 (right leg + waist roll)
+┌─────────────────────────────────────────────────────────────────┐
+│                      Raspberry Pi 5                             │
+│                                                                 │
+│  SPI0 (GPIO8/9/10/11) ──► CAN-FD HAT ──► can0  (5 Mbps CAN-FD)│
+│  SPI1 (GPIO18/19/20/21)─► CAN-FD HAT ──► can1  (5 Mbps CAN-FD)│
+│                                                                 │
+│  SPI3 (GPIO0/1/2/3)   ──► AS5048A daisy-chain (10 encoders)   │
+│                              /dev/spidev3.0                     │
+│                                                                 │
+│  UART0 GPIO14 (TX) ────────► BNO085 RX                         │
+│  UART0 GPIO15 (RX) ◄──────── BNO085 TX    /dev/ttyAMA0         │
+│  GPIO25           ─────────► BNO085 RESET                      │
+│                                                                 │
+│  GPIO4  (Pin  7) ──► left_toe_switch                           │
+│  GPIO5  (Pin 29) ──► left_heel_switch                          │
+│  GPIO6  (Pin 31) ──► right_toe_switch                          │
+│  GPIO13 (Pin 33) ──► right_heel_switch                         │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-All wiring parameters (SPI device paths, GPIO numbers, CAN bitrate) can be overridden in [zeus_description/urdf/zeus_ros2_control.xacro](zeus_description/urdf/zeus_ros2_control.xacro).
+All device paths, GPIO numbers, and baud rates can be overridden in [zeus_description/urdf/zeus_ros2_control.xacro](zeus_description/urdf/zeus_ros2_control.xacro).
+
+> **Raspberry Pi config.txt** — SPI3 is not enabled by default. Add this line to `/boot/firmware/config.txt` and reboot:
+> ```
+> dtoverlay=spi3-1cs
+> ```
 
 ---
 
@@ -564,6 +610,7 @@ All wiring parameters (SPI device paths, GPIO numbers, CAN bitrate) can be overr
 
 - `zeus_gazebo` is a scaffold — simulation is not functional yet.
 - `zeus_control_interface/rl_policy_node.py` is a placeholder — no RL policy is loaded yet.
-- Link lengths in `zeus_sensor_fusion/config/kinematics.yaml` are placeholders and must be measured.
-- The BNO085 SPI/SHTP driver has not been tested on final hardware wiring; verify INT and RESET GPIO numbers match your Pi setup.
+- Link lengths in `zeus_sensor_fusion/config/kinematics.yaml` are placeholders and must be measured on the physical robot.
+- SPI3 is not enabled by default on the Raspberry Pi — add `dtoverlay=spi3-1cs` to `/boot/firmware/config.txt` before the encoder chain will appear as `/dev/spidev3.0`.
+- The BNO085 UART driver has not been tested on the final hardware; verify `/dev/ttyAMA0` maps to GPIO14/15 on your specific Pi 5 image (it should, but some images reassign ttyAMA0 to Bluetooth).
 - ODrive position commands are in the ODrive's native units (revolutions, depending on encoder CPR and gear ratio configuration on the ODrive). Calibrate each axis before commanding motion.

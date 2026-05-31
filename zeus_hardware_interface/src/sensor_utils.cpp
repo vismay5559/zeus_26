@@ -1,13 +1,11 @@
 #include "zeus_hardware_interface/sensor_utils.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <fstream>
 #include <fcntl.h>
-#include <linux/spi/spidev.h>
 #include <string>
-#include <sys/ioctl.h>
+#include <termios.h>
 #include <thread>
 #include <unistd.h>
 
@@ -16,359 +14,289 @@ namespace zeus_hardware_interface::sensor_utils
 
 namespace
 {
-constexpr uint8_t kBnoChannelControl = 2;
-constexpr uint8_t kBnoChannelInputReports = 3;
+// SHTP channel numbers
+constexpr uint8_t kBnoChannelControl        = 2;
+constexpr uint8_t kBnoChannelInputReports   = 3;
 constexpr uint8_t kBnoChannelWakeInputReports = 4;
 
-constexpr uint8_t kSetFeatureCommand = 0xFD;
-constexpr uint8_t kBaseTimestampReport = 0xFB;
-constexpr uint8_t kTimestampRebaseReport = 0xFA;
-constexpr uint8_t kGetFeatureResponse = 0xFC;
-
-constexpr uint8_t kReportGyroscope = 0x02;
+// SHTP command / report IDs
+constexpr uint8_t kSetFeatureCommand        = 0xFD;
+constexpr uint8_t kBaseTimestampReport      = 0xFB;
+constexpr uint8_t kTimestampRebaseReport    = 0xFA;
+constexpr uint8_t kGetFeatureResponse       = 0xFC;
+constexpr uint8_t kReportGyroscope          = 0x02;
 constexpr uint8_t kReportLinearAcceleration = 0x04;
-constexpr uint8_t kReportRotationVector = 0x05;
+constexpr uint8_t kReportRotationVector     = 0x05;
 
-constexpr double kQuatScalar = 1.0 / 16384.0;  // Q14
-constexpr double kAccelScalar = 1.0 / 256.0;   // Q8, m/s^2
-constexpr double kGyroScalar = 1.0 / 512.0;    // Q9, rad/s
+// Fixed-point scale factors (matching BNO085 datasheet)
+constexpr double kQuatScalar  = 1.0 / 16384.0;  // Q14
+constexpr double kAccelScalar = 1.0 / 256.0;    // Q8,  m/s²
+constexpr double kGyroScalar  = 1.0 / 512.0;    // Q9,  rad/s
 
 bool write_text_file(const std::string & path, const std::string & value)
 {
   std::ofstream stream(path);
-  if (!stream.is_open()) {
-    return false;
-  }
+  if (!stream.is_open()) return false;
   stream << value;
   return stream.good();
 }
 
-bool read_text_file(const std::string & path, std::string & value)
+void put_u32_le(std::vector<uint8_t> & buf, std::size_t offset, uint32_t value)
 {
-  std::ifstream stream(path);
-  if (!stream.is_open()) {
-    return false;
-  }
-  stream >> value;
-  return stream.good();
-}
-
-void put_u32_le(std::vector<uint8_t> & buffer, std::size_t offset, uint32_t value)
-{
-  buffer[offset] = static_cast<uint8_t>(value & 0xFF);
-  buffer[offset + 1] = static_cast<uint8_t>((value >> 8) & 0xFF);
-  buffer[offset + 2] = static_cast<uint8_t>((value >> 16) & 0xFF);
-  buffer[offset + 3] = static_cast<uint8_t>((value >> 24) & 0xFF);
+  buf[offset]     = static_cast<uint8_t>(value & 0xFF);
+  buf[offset + 1] = static_cast<uint8_t>((value >>  8) & 0xFF);
+  buf[offset + 2] = static_cast<uint8_t>((value >> 16) & 0xFF);
+  buf[offset + 3] = static_cast<uint8_t>((value >> 24) & 0xFF);
 }
 
 int16_t read_i16_le(const uint8_t * data, std::size_t offset)
 {
-  const uint16_t raw =
+  return static_cast<int16_t>(
     static_cast<uint16_t>(data[offset]) |
-    (static_cast<uint16_t>(data[offset + 1]) << 8);
-  return static_cast<int16_t>(raw);
+    (static_cast<uint16_t>(data[offset + 1]) << 8));
 }
 
-std::size_t bno_report_length(uint8_t report_id)
+std::size_t bno_report_length(uint8_t id)
 {
-  switch (report_id) {
+  switch (id) {
     case kReportGyroscope:
-    case kReportLinearAcceleration:
-      return 10;
-    case kReportRotationVector:
-      return 14;
+    case kReportLinearAcceleration: return 10;
+    case kReportRotationVector:     return 14;
     case kBaseTimestampReport:
-    case kTimestampRebaseReport:
-      return 5;
-    case kGetFeatureResponse:
-      return 17;
-    default:
-      return 0;
+    case kTimestampRebaseReport:    return 5;
+    case kGetFeatureResponse:       return 17;
+    default:                        return 0;
   }
 }
 
-bool configure_spi_fd(int fd, uint8_t spi_mode, uint8_t bits_per_word, uint32_t speed_hz)
+// Map a numeric baud rate to the POSIX B* constant.
+speed_t to_posix_baud(uint32_t baud)
 {
-  return ioctl(fd, SPI_IOC_WR_MODE, &spi_mode) >= 0 &&
-         ioctl(fd, SPI_IOC_RD_MODE, &spi_mode) >= 0 &&
-         ioctl(fd, SPI_IOC_WR_BITS_PER_WORD, &bits_per_word) >= 0 &&
-         ioctl(fd, SPI_IOC_RD_BITS_PER_WORD, &bits_per_word) >= 0 &&
-         ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed_hz) >= 0 &&
-         ioctl(fd, SPI_IOC_RD_MAX_SPEED_HZ, &speed_hz) >= 0;
+  switch (baud) {
+    case 9600:    return B9600;
+    case 19200:   return B19200;
+    case 38400:   return B38400;
+    case 57600:   return B57600;
+    case 115200:  return B115200;
+    case 230400:  return B230400;
+    case 460800:  return B460800;
+    case 500000:  return B500000;
+    case 576000:  return B576000;
+    case 921600:  return B921600;
+    case 1000000: return B1000000;
+    case 1152000: return B1152000;
+    case 1500000: return B1500000;
+    case 2000000: return B2000000;
+    case 2500000: return B2500000;
+    case 3000000: return B3000000;
+    case 3500000: return B3500000;
+    case 4000000: return B4000000;
+    default:      return B3000000;
+  }
 }
 }  // namespace
 
-bool BNO085SpiReader::open_device(
-  const std::string & device, uint32_t speed_hz, int interrupt_gpio,
+// ---------------------------------------------------------------------------
+// BNO085UartReader — SHTP framing over hardware UART
+// ---------------------------------------------------------------------------
+
+bool BNO085UartReader::open_device(
+  const std::string & device, uint32_t baud_rate,
   int reset_gpio, uint32_t report_interval_us)
 {
   close_device();
-  interrupt_gpio_ = interrupt_gpio;
   reset_gpio_ = reset_gpio;
-  speed_hz_ = speed_hz;
   sequence_numbers_.fill(0);
+  rx_buf_.clear();
 
-  if (!configure_spi(device, SPI_MODE_3, speed_hz_)) {
-    close_device();
+  if (!configure_uart(device, baud_rate)) {
     return false;
   }
 
-  if (interrupt_gpio_ >= 0 && !configure_gpio(interrupt_gpio_, "in")) {
-    close_device();
-    return false;
+  if (reset_gpio_ >= 0) {
+    configure_gpio(reset_gpio_, "out");
+    hard_reset();
   }
 
-  if (reset_gpio_ >= 0 && !configure_gpio(reset_gpio_, "out")) {
-    close_device();
-    return false;
-  }
+  // Let the BNO085 send its startup packets, then discard them.
+  std::this_thread::sleep_for(std::chrono::milliseconds(150));
+  pump_rx();
+  rx_buf_.clear();
 
-  hard_reset();
-
-  std::vector<uint8_t> packet;
-  for (int i = 0; i < 3; ++i) {
-    read_packet(packet);
-  }
-
-  enable_report(kReportRotationVector, report_interval_us);
+  enable_report(kReportRotationVector,     report_interval_us);
   enable_report(kReportLinearAcceleration, report_interval_us);
-  enable_report(kReportGyroscope, report_interval_us);
+  enable_report(kReportGyroscope,          report_interval_us);
   return true;
 }
 
-void BNO085SpiReader::close_device()
+void BNO085UartReader::close_device()
 {
   if (fd_ >= 0) {
-    close(fd_);
+    ::close(fd_);
     fd_ = -1;
   }
 }
 
-bool BNO085SpiReader::is_open() const
+bool BNO085UartReader::is_open() const { return fd_ >= 0; }
+
+bool BNO085UartReader::configure_uart(const std::string & device, uint32_t baud_rate)
 {
-  return fd_ >= 0;
+  fd_ = ::open(device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+  if (fd_ < 0) return false;
+
+  struct termios tio;
+  if (tcgetattr(fd_, &tio) < 0) { close_device(); return false; }
+
+  cfmakeraw(&tio);
+  const speed_t spd = to_posix_baud(baud_rate);
+  cfsetispeed(&tio, spd);
+  cfsetospeed(&tio, spd);
+  tio.c_cflag |=  (CLOCAL | CREAD);
+  tio.c_cflag &= ~CRTSCTS;
+
+  if (tcsetattr(fd_, TCSANOW, &tio) < 0) { close_device(); return false; }
+  tcflush(fd_, TCIOFLUSH);
+  return true;
 }
 
-bool BNO085SpiReader::configure_spi(
-  const std::string & device, uint8_t spi_mode, uint32_t speed_hz)
+bool BNO085UartReader::configure_gpio(int gpio, const std::string & direction)
 {
-  fd_ = open(device.c_str(), O_RDWR);
-  if (fd_ < 0) {
-    return false;
-  }
-
-  const uint8_t bits_per_word = 8;
-  return configure_spi_fd(fd_, spi_mode, bits_per_word, speed_hz);
-}
-
-bool BNO085SpiReader::configure_gpio(int gpio, const std::string & direction)
-{
-  const std::string gpio_number = std::to_string(gpio);
-  write_text_file("/sys/class/gpio/export", gpio_number);
+  const std::string pin = std::to_string(gpio);
+  write_text_file("/sys/class/gpio/export", pin);
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
-  return write_text_file("/sys/class/gpio/gpio" + gpio_number + "/direction", direction);
+  return write_text_file("/sys/class/gpio/gpio" + pin + "/direction", direction);
 }
 
-bool BNO085SpiReader::write_gpio(int gpio, int value)
+bool BNO085UartReader::write_gpio(int gpio, int value)
 {
   return write_text_file(
-    "/sys/class/gpio/gpio" + std::to_string(gpio) + "/value", std::to_string(value));
+    "/sys/class/gpio/gpio" + std::to_string(gpio) + "/value",
+    std::to_string(value));
 }
 
-bool BNO085SpiReader::read_gpio(int gpio, int & value) const
+void BNO085UartReader::hard_reset()
 {
-  std::string text;
-  if (!read_text_file("/sys/class/gpio/gpio" + std::to_string(gpio) + "/value", text)) {
-    return false;
-  }
-  value = text == "0" ? 0 : 1;
-  return true;
-}
-
-bool BNO085SpiReader::data_ready() const
-{
-  if (interrupt_gpio_ < 0) {
-    return true;
-  }
-
-  int value = 1;
-  return read_gpio(interrupt_gpio_, value) && value == 0;
-}
-
-bool BNO085SpiReader::wait_for_interrupt(int timeout_ms) const
-{
-  if (interrupt_gpio_ < 0) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    return true;
-  }
-
-  const auto start = std::chrono::steady_clock::now();
-  while (std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::steady_clock::now() - start).count() < timeout_ms) {
-    if (data_ready()) {
-      return true;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
-  return false;
-}
-
-bool BNO085SpiReader::transfer(const std::vector<uint8_t> & tx, std::vector<uint8_t> & rx)
-{
-  if (fd_ < 0 || tx.empty()) {
-    return false;
-  }
-
-  rx.assign(tx.size(), 0);
-  struct spi_ioc_transfer transfer;
-  std::memset(&transfer, 0, sizeof(transfer));
-  transfer.tx_buf = reinterpret_cast<unsigned long>(tx.data());
-  transfer.rx_buf = reinterpret_cast<unsigned long>(rx.data());
-  transfer.len = static_cast<uint32_t>(tx.size());
-  transfer.speed_hz = speed_hz_;
-  transfer.bits_per_word = 8;
-
-  return ioctl(fd_, SPI_IOC_MESSAGE(1), &transfer) >= 0;
-}
-
-bool BNO085SpiReader::read_packet(std::vector<uint8_t> & packet)
-{
-  if (!wait_for_interrupt(1)) {
-    return false;
-  }
-
-  std::vector<uint8_t> header_tx(4, 0x00);
-  std::vector<uint8_t> header_rx;
-  if (!transfer(header_tx, header_rx) || header_rx.size() < 4) {
-    return false;
-  }
-
-  const uint16_t packet_length =
-    static_cast<uint16_t>(header_rx[0]) |
-    (static_cast<uint16_t>(header_rx[1] & 0x7F) << 8);
-  if (packet_length < 4 || packet_length > 512) {
-    return false;
-  }
-
-  std::vector<uint8_t> packet_tx(packet_length, 0x00);
-  if (!wait_for_interrupt(1) || !transfer(packet_tx, packet)) {
-    return false;
-  }
-
-  return packet.size() >= packet_length;
-}
-
-bool BNO085SpiReader::send_packet(uint8_t channel, const std::vector<uint8_t> & payload)
-{
-  if (channel >= sequence_numbers_.size()) {
-    return false;
-  }
-
-  const uint16_t packet_length = static_cast<uint16_t>(payload.size() + 4);
-  std::vector<uint8_t> tx(packet_length, 0);
-  tx[0] = static_cast<uint8_t>(packet_length & 0xFF);
-  tx[1] = static_cast<uint8_t>((packet_length >> 8) & 0x7F);
-  tx[2] = channel;
-  tx[3] = sequence_numbers_[channel];
-  std::copy(payload.begin(), payload.end(), tx.begin() + 4);
-
-  std::vector<uint8_t> rx;
-  if (!wait_for_interrupt(3) || !transfer(tx, rx)) {
-    return false;
-  }
-
-  sequence_numbers_[channel] = static_cast<uint8_t>(sequence_numbers_[channel] + 1);
-  return true;
-}
-
-void BNO085SpiReader::hard_reset()
-{
-  if (reset_gpio_ < 0) {
-    return;
-  }
-
-  write_gpio(reset_gpio_, 1);
-  std::this_thread::sleep_for(std::chrono::milliseconds(10));
   write_gpio(reset_gpio_, 0);
   std::this_thread::sleep_for(std::chrono::milliseconds(10));
   write_gpio(reset_gpio_, 1);
-  wait_for_interrupt(3000);
+  // BNO085 datasheet: allow 300 ms for firmware boot after reset
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
 }
 
-void BNO085SpiReader::enable_report(uint8_t report_id, uint32_t report_interval_us)
+bool BNO085UartReader::send_shtp_packet(uint8_t channel, const std::vector<uint8_t> & payload)
+{
+  if (fd_ < 0 || channel >= sequence_numbers_.size()) return false;
+
+  const uint16_t len = static_cast<uint16_t>(payload.size() + 4);
+  std::vector<uint8_t> frame;
+  frame.reserve(len);
+  frame.push_back(static_cast<uint8_t>(len & 0xFF));
+  frame.push_back(static_cast<uint8_t>((len >> 8) & 0x7F));
+  frame.push_back(channel);
+  frame.push_back(sequence_numbers_[channel]++);
+  frame.insert(frame.end(), payload.begin(), payload.end());
+
+  const ssize_t written = ::write(fd_, frame.data(), frame.size());
+  return written == static_cast<ssize_t>(frame.size());
+}
+
+void BNO085UartReader::enable_report(uint8_t report_id, uint32_t report_interval_us)
 {
   std::vector<uint8_t> payload(17, 0);
   payload[0] = kSetFeatureCommand;
   payload[1] = report_id;
   put_u32_le(payload, 5, report_interval_us);
-  send_packet(kBnoChannelControl, payload);
+  send_shtp_packet(kBnoChannelControl, payload);
 }
 
-bool BNO085SpiReader::read_sample(BNO085Sample & sample)
+// Drain whatever bytes are currently waiting in the UART hardware FIFO.
+bool BNO085UartReader::pump_rx()
 {
-  if (!is_open() || !data_ready()) {
+  uint8_t tmp[256];
+  bool got_any = false;
+  ssize_t n;
+  while ((n = ::read(fd_, tmp, sizeof(tmp))) > 0) {
+    rx_buf_.insert(rx_buf_.end(), tmp, tmp + n);
+    got_any = true;
+  }
+  return got_any;
+}
+
+// If rx_buf_ contains a complete SHTP packet, pop it into 'packet'.
+// On framing error, discard one byte and return false so the caller
+// can call pump_rx() again on the next cycle.
+bool BNO085UartReader::extract_packet(std::vector<uint8_t> & packet)
+{
+  if (rx_buf_.size() < 4) return false;
+
+  const uint16_t pkt_len =
+    static_cast<uint16_t>(rx_buf_[0]) |
+    (static_cast<uint16_t>(rx_buf_[1] & 0x7F) << 8);
+
+  if (pkt_len < 4 || pkt_len > 512) {
+    rx_buf_.erase(rx_buf_.begin());  // discard one byte and resync
     return false;
   }
+
+  if (rx_buf_.size() < pkt_len) return false;
+
+  packet.assign(rx_buf_.begin(), rx_buf_.begin() + pkt_len);
+  rx_buf_.erase(rx_buf_.begin(), rx_buf_.begin() + pkt_len);
+  return true;
+}
+
+bool BNO085UartReader::read_sample(BNO085Sample & sample)
+{
+  if (!is_open()) return false;
+  pump_rx();
 
   bool updated = false;
   std::vector<uint8_t> packet;
-  for (int i = 0; i < 8 && data_ready(); ++i) {
-    if (!read_packet(packet)) {
-      break;
-    }
+  while (extract_packet(packet)) {
     updated = parse_packet(packet, sample) || updated;
   }
-
   return updated;
 }
 
-bool BNO085SpiReader::parse_packet(const std::vector<uint8_t> & packet, BNO085Sample & sample)
+bool BNO085UartReader::parse_packet(const std::vector<uint8_t> & packet, BNO085Sample & sample)
 {
-  if (packet.size() < 5) {
-    return false;
-  }
+  if (packet.size() < 5) return false;
 
-  const uint16_t packet_length =
+  const uint16_t pkt_len =
     static_cast<uint16_t>(packet[0]) |
     (static_cast<uint16_t>(packet[1] & 0x7F) << 8);
-  if (packet_length < 4 || packet_length > packet.size()) {
-    return false;
-  }
+  if (pkt_len < 4 || pkt_len > packet.size()) return false;
 
   const uint8_t channel = packet[2];
-  if (channel != kBnoChannelInputReports && channel != kBnoChannelWakeInputReports &&
+  if (channel != kBnoChannelInputReports &&
+      channel != kBnoChannelWakeInputReports &&
       channel != kBnoChannelControl) {
     return false;
   }
 
   bool updated = false;
   std::size_t offset = 4;
-  while (offset < packet_length) {
-    const uint8_t report_id = packet[offset];
-    const std::size_t report_size = bno_report_length(report_id);
-    if (report_size == 0 || offset + report_size > packet_length) {
-      return updated;
-    }
-    updated = parse_report(packet.data() + offset, report_size, sample) || updated;
-    offset += report_size;
+  while (offset < pkt_len) {
+    const uint8_t report_id  = packet[offset];
+    const std::size_t rlen   = bno_report_length(report_id);
+    if (rlen == 0 || offset + rlen > pkt_len) return updated;
+    updated = parse_report(packet.data() + offset, rlen, sample) || updated;
+    offset += rlen;
   }
-
   return updated;
 }
 
-bool BNO085SpiReader::parse_report(
+bool BNO085UartReader::parse_report(
   const uint8_t * report, std::size_t report_size, BNO085Sample & sample)
 {
-  if (report_size < 10) {
-    return false;
-  }
+  if (report_size < 10) return false;
 
   switch (report[0]) {
     case kReportRotationVector:
       if (report_size >= 12) {
-        sample.orientation_xyzw[0] = read_i16_le(report, 4) * kQuatScalar;
-        sample.orientation_xyzw[1] = read_i16_le(report, 6) * kQuatScalar;
-        sample.orientation_xyzw[2] = read_i16_le(report, 8) * kQuatScalar;
+        sample.orientation_xyzw[0] = read_i16_le(report,  4) * kQuatScalar;
+        sample.orientation_xyzw[1] = read_i16_le(report,  6) * kQuatScalar;
+        sample.orientation_xyzw[2] = read_i16_le(report,  8) * kQuatScalar;
         sample.orientation_xyzw[3] = read_i16_le(report, 10) * kQuatScalar;
         sample.has_orientation = true;
         return true;
@@ -389,64 +317,7 @@ bool BNO085SpiReader::parse_report(
     default:
       break;
   }
-
   return false;
-}
-
-bool MCP3008Reader::open_device(const std::string & device, uint32_t speed_hz)
-{
-  close_device();
-  fd_ = open(device.c_str(), O_RDWR);
-  if (fd_ < 0) {
-    return false;
-  }
-
-  speed_hz_ = speed_hz;
-  const uint8_t mode = SPI_MODE_0;
-  const uint8_t bits_per_word = 8;
-  if (!configure_spi_fd(fd_, mode, bits_per_word, speed_hz_)) {
-    close_device();
-    return false;
-  }
-
-  return true;
-}
-
-void MCP3008Reader::close_device()
-{
-  if (fd_ >= 0) {
-    close(fd_);
-    fd_ = -1;
-  }
-}
-
-bool MCP3008Reader::is_open() const
-{
-  return fd_ >= 0;
-}
-
-bool MCP3008Reader::read_channel(uint8_t channel, uint16_t & value)
-{
-  if (fd_ < 0 || channel > 7) {
-    return false;
-  }
-
-  std::array<uint8_t, 3> tx{0x01, static_cast<uint8_t>((0x08 | channel) << 4), 0x00};
-  std::array<uint8_t, 3> rx{0x00, 0x00, 0x00};
-  struct spi_ioc_transfer transfer;
-  std::memset(&transfer, 0, sizeof(transfer));
-  transfer.tx_buf = reinterpret_cast<unsigned long>(tx.data());
-  transfer.rx_buf = reinterpret_cast<unsigned long>(rx.data());
-  transfer.len = static_cast<uint32_t>(tx.size());
-  transfer.speed_hz = speed_hz_;
-  transfer.bits_per_word = 8;
-
-  if (ioctl(fd_, SPI_IOC_MESSAGE(1), &transfer) < 0) {
-    return false;
-  }
-
-  value = static_cast<uint16_t>(((rx[1] & 0x03) << 8) | rx[2]);
-  return true;
 }
 
 }  // namespace zeus_hardware_interface::sensor_utils

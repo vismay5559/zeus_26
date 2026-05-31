@@ -9,8 +9,10 @@
       <param name="can0">can0</param>
       <param name="can1">can1</param>
 
-      <!-- AS5048A Encoder Daisy-Chain SPI Configuration -->
-      <param name="encoder_spi_device">/dev/spidev1.0</param>
+      <!-- AS5048A Encoder Daisy-Chain SPI Configuration
+           Uses SPI3 (GPIO2/3/1/0) — SPI0 and SPI1 are owned by the CAN-FD HAT.
+           Activate with: dtoverlay=spi3-1cs in /boot/firmware/config.txt -->
+      <param name="encoder_spi_device">/dev/spidev3.0</param>
       <param name="encoder_spi_speed_hz">1000000</param>
       <param name="encoder_spi_mode">1</param>
       <param name="num_daisy_encoders">10</param>
@@ -18,11 +20,13 @@
       <!-- Encoder to Joint Mapping (position 0-9 maps to joint 0-9) -->
       <param name="encoder_to_joint_map">0,1,2,3,4,5,6,7,8,9</param>
 
-      <!-- BNO085 IMU SPI Configuration -->
+      <!-- BNO085 IMU UART Configuration
+           Hardware UART on GPIO14 (TX, Pin 8) / GPIO15 (RX, Pin 10) → /dev/ttyAMA0.
+           3 Mbaud keeps latency well under 1 ms at 400 Hz report rate.
+           RESET via GPIO25 (Pin 22); no INT pin needed on UART. -->
       <param name="imu_sensor_name">imu</param>
-      <param name="imu_spi_device">/dev/spidev0.0</param>
-      <param name="imu_spi_speed_hz">1000000</param>
-      <param name="imu_int_gpio">24</param>
+      <param name="imu_uart_device">/dev/ttyAMA0</param>
+      <param name="imu_uart_baud_rate">3000000</param>
       <param name="imu_reset_gpio">25</param>
       <param name="imu_report_interval_us">2500</param>
     </hardware>
@@ -146,28 +150,29 @@
       <!-- Mechanical Contact Switches (direct GPIO, BCM pin numbering)
            active_low="false" -> HIGH signal means contact detected (normally open, pull-down)
            active_low="true"  -> LOW  signal means contact detected (normally closed, pull-up)
+           Pins: GPIO4 (Pin 7), GPIO5 (Pin 29), GPIO6 (Pin 31), GPIO13 (Pin 33)
       -->
       <sensor name="left_toe_switch">
         <state_interface name="contact"/>
-        <param name="gpio_pin">17</param>
+        <param name="gpio_pin">4</param>
         <param name="active_low">false</param>
       </sensor>
 
       <sensor name="left_heel_switch">
         <state_interface name="contact"/>
-        <param name="gpio_pin">27</param>
+        <param name="gpio_pin">5</param>
         <param name="active_low">false</param>
       </sensor>
 
       <sensor name="right_toe_switch">
         <state_interface name="contact"/>
-        <param name="gpio_pin">22</param>
+        <param name="gpio_pin">6</param>
         <param name="active_low">false</param>
       </sensor>
 
       <sensor name="right_heel_switch">
         <state_interface name="contact"/>
-        <param name="gpio_pin">23</param>
+        <param name="gpio_pin">13</param>
         <param name="active_low">false</param>
       </sensor>
 
