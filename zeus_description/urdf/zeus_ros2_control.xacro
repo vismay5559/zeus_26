@@ -2,25 +2,48 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
 <xacro:macro name="zeus_system_hardware">
+  <ros2_control name="ZeusSystem" type="system">
     <hardware>
       <plugin>zeus_hardware_interface/ZeusSystemHardware</plugin>
-      
+
       <param name="can0">can0</param>
       <param name="can1">can1</param>
-      
+
       <!-- AS5048A Encoder Daisy-Chain SPI Configuration -->
       <param name="encoder_spi_device">/dev/spidev1.0</param>
       <param name="encoder_spi_speed_hz">1000000</param>
       <param name="encoder_spi_mode">1</param>
       <param name="num_daisy_encoders">10</param>
-      
+
       <!-- Encoder to Joint Mapping (position 0-9 maps to joint 0-9) -->
       <param name="encoder_to_joint_map">0,1,2,3,4,5,6,7,8,9</param>
 
-      <!-- Joint Definitions -->
+      <!-- BNO085 IMU SPI Configuration -->
+      <param name="imu_sensor_name">imu</param>
+      <param name="imu_spi_device">/dev/spidev0.0</param>
+      <param name="imu_spi_speed_hz">1000000</param>
+      <param name="imu_int_gpio">24</param>
+      <param name="imu_reset_gpio">25</param>
+      <param name="imu_report_interval_us">2500</param>
+    </hardware>
+
+      <!-- Joint Definitions
+           joint_0  = left_hip_pitch    (can0, node 1)
+           joint_1  = left_hip_roll     (can0, node 2)
+           joint_2  = left_knee_pitch   (can0, node 3)
+           joint_3  = left_ankle_pitch  (can0, node 4)
+           joint_4  = waist_pitch       (can0, node 5)
+           joint_5  = right_hip_pitch   (can1, node 1)
+           joint_6  = right_hip_roll    (can1, node 2)
+           joint_7  = right_knee_pitch  (can1, node 3)
+           joint_8  = right_ankle_pitch (can1, node 4)
+           joint_9  = waist_roll        (can1, node 5)
+      -->
       <joint name="joint_0">
         <command_interface name="target_actuator_angle"/>
         <state_interface name="after_spring_angle"/>
+        <state_interface name="load_encoder_position"/>
+        <state_interface name="torque_estimate"/>
         <param name="can_bus">can0</param>
         <param name="node_id">1</param>
       </joint>
@@ -28,6 +51,8 @@
       <joint name="joint_1">
         <command_interface name="target_actuator_angle"/>
         <state_interface name="after_spring_angle"/>
+        <state_interface name="load_encoder_position"/>
+        <state_interface name="torque_estimate"/>
         <param name="can_bus">can0</param>
         <param name="node_id">2</param>
       </joint>
@@ -35,6 +60,8 @@
       <joint name="joint_2">
         <command_interface name="target_actuator_angle"/>
         <state_interface name="after_spring_angle"/>
+        <state_interface name="load_encoder_position"/>
+        <state_interface name="torque_estimate"/>
         <param name="can_bus">can0</param>
         <param name="node_id">3</param>
       </joint>
@@ -42,6 +69,8 @@
       <joint name="joint_3">
         <command_interface name="target_actuator_angle"/>
         <state_interface name="after_spring_angle"/>
+        <state_interface name="load_encoder_position"/>
+        <state_interface name="torque_estimate"/>
         <param name="can_bus">can0</param>
         <param name="node_id">4</param>
       </joint>
@@ -49,6 +78,8 @@
       <joint name="joint_4">
         <command_interface name="target_actuator_angle"/>
         <state_interface name="after_spring_angle"/>
+        <state_interface name="load_encoder_position"/>
+        <state_interface name="torque_estimate"/>
         <param name="can_bus">can0</param>
         <param name="node_id">5</param>
       </joint>
@@ -56,6 +87,8 @@
       <joint name="joint_5">
         <command_interface name="target_actuator_angle"/>
         <state_interface name="after_spring_angle"/>
+        <state_interface name="load_encoder_position"/>
+        <state_interface name="torque_estimate"/>
         <param name="can_bus">can1</param>
         <param name="node_id">1</param>
       </joint>
@@ -63,6 +96,8 @@
       <joint name="joint_6">
         <command_interface name="target_actuator_angle"/>
         <state_interface name="after_spring_angle"/>
+        <state_interface name="load_encoder_position"/>
+        <state_interface name="torque_estimate"/>
         <param name="can_bus">can1</param>
         <param name="node_id">2</param>
       </joint>
@@ -70,6 +105,8 @@
       <joint name="joint_7">
         <command_interface name="target_actuator_angle"/>
         <state_interface name="after_spring_angle"/>
+        <state_interface name="load_encoder_position"/>
+        <state_interface name="torque_estimate"/>
         <param name="can_bus">can1</param>
         <param name="node_id">3</param>
       </joint>
@@ -77,6 +114,8 @@
       <joint name="joint_8">
         <command_interface name="target_actuator_angle"/>
         <state_interface name="after_spring_angle"/>
+        <state_interface name="load_encoder_position"/>
+        <state_interface name="torque_estimate"/>
         <param name="can_bus">can1</param>
         <param name="node_id">4</param>
       </joint>
@@ -84,11 +123,55 @@
       <joint name="joint_9">
         <command_interface name="target_actuator_angle"/>
         <state_interface name="after_spring_angle"/>
+        <state_interface name="load_encoder_position"/>
+        <state_interface name="torque_estimate"/>
         <param name="can_bus">can1</param>
         <param name="node_id">5</param>
       </joint>
 
-    </hardware>
+      <!-- IMU State Interfaces (BNO085 via SPI/SHTP) -->
+      <sensor name="imu">
+        <state_interface name="orientation.x"/>
+        <state_interface name="orientation.y"/>
+        <state_interface name="orientation.z"/>
+        <state_interface name="orientation.w"/>
+        <state_interface name="linear_acceleration.x"/>
+        <state_interface name="linear_acceleration.y"/>
+        <state_interface name="linear_acceleration.z"/>
+        <state_interface name="angular_velocity.x"/>
+        <state_interface name="angular_velocity.y"/>
+        <state_interface name="angular_velocity.z"/>
+      </sensor>
+
+      <!-- Mechanical Contact Switches (direct GPIO, BCM pin numbering)
+           active_low="false" -> HIGH signal means contact detected (normally open, pull-down)
+           active_low="true"  -> LOW  signal means contact detected (normally closed, pull-up)
+      -->
+      <sensor name="left_toe_switch">
+        <state_interface name="contact"/>
+        <param name="gpio_pin">17</param>
+        <param name="active_low">false</param>
+      </sensor>
+
+      <sensor name="left_heel_switch">
+        <state_interface name="contact"/>
+        <param name="gpio_pin">27</param>
+        <param name="active_low">false</param>
+      </sensor>
+
+      <sensor name="right_toe_switch">
+        <state_interface name="contact"/>
+        <param name="gpio_pin">22</param>
+        <param name="active_low">false</param>
+      </sensor>
+
+      <sensor name="right_heel_switch">
+        <state_interface name="contact"/>
+        <param name="gpio_pin">23</param>
+        <param name="active_low">false</param>
+      </sensor>
+
+    </ros2_control>
   </xacro:macro>
 
 </robot>

@@ -14,6 +14,7 @@ namespace zeus_can_interface
 constexpr uint32_t ODESC_CMD_GET_ENCODER_ESTIMATES = 0x009;
 constexpr uint32_t ODESC_CMD_SET_INPUT_POS = 0x00C;
 constexpr uint32_t ODESC_CMD_SET_AXIS_STATE = 0x007;
+constexpr uint32_t ODESC_CMD_GET_TORQUES = 0x01C;
 
 class SocketCANTransceiver
 {

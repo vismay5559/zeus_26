@@ -2,8 +2,14 @@ controller_manager:
   ros__parameters:
     update_rate: 1000  # <--- THE 1 kHz HARDWARE HEARTBEAT
 
-    # 1. The Broadcaster: Reads the C++ memory and publishes to ROS
+    # 1. The Broadcasters: Read C++ memory and publish to ROS topics
     joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    imu_sensor_broadcaster:
+      type: imu_sensor_broadcaster/IMUSensorBroadcaster
+
+    contact_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
     # 2. The Command Controller: Listens to Python and writes to C++ memory
@@ -27,9 +33,28 @@ joint_state_broadcaster:
       - joint_7
       - joint_8
       - joint_9
-    # Tell the broadcaster to fetch our custom SEA state interface
+    # Custom SEA state interfaces from ODrive S1 + AS5048A encoders
     interfaces:
       - after_spring_angle
+      - load_encoder_position
+      - torque_estimate
+
+imu_sensor_broadcaster:
+  ros__parameters:
+    sensor_name: imu
+    frame_id: imu_link
+
+contact_state_broadcaster:
+  ros__parameters:
+    use_local_topics: true
+    use_urdf_to_filter: false
+    joints:
+      - left_toe_switch
+      - left_heel_switch
+      - right_toe_switch
+      - right_heel_switch
+    interfaces:
+      - contact
 
 rl_forward_command_controller:
   ros__parameters:
@@ -44,5 +69,5 @@ rl_forward_command_controller:
       - joint_7
       - joint_8
       - joint_9
-    # Tell the controller to push data into our custom SEA command interface
+    # Custom SEA command interface
     interface_name: target_actuator_angle

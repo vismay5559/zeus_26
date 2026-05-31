@@ -1,0 +1,84 @@
+# Zeus InEKF State Estimator Parameters
+# =====================================================================
+# Noise values match Table 1 from:
+#   Hartley et al. 2019, "Contact-Aided Invariant Extended Kalman
+#   Filtering for Robot State Estimation."
+#
+# Tune these after the physical robot is calibrated:
+#   1. Place the robot stationary; noise_gyro_std / noise_accel_std
+#      can be read from the IMU datasheet or Allan variance analysis.
+#   2. init_orientation_std: start large (30 deg) to allow fast convergence.
+#   3. noise_contact_vel_std: increase if the robot slides on smooth floors.
+# =====================================================================
+
+zeus_sensor_fusion:
+  ros__parameters:
+
+    # ------------------------------------------------------------------
+    # Process noise standard deviations
+    # ------------------------------------------------------------------
+
+    # BNO085 gyroscope noise density  (rad/s / √Hz)
+    noise_gyro_std: 0.002
+
+    # BNO085 accelerometer noise density  (m/s² / √Hz)
+    noise_accel_std: 0.04
+
+    # Gyroscope bias random walk  (rad/s² / √Hz  ≈ rad/s per √s)
+    noise_gyro_bias_std: 0.001
+
+    # Accelerometer bias random walk  (m/s³ / √Hz)
+    noise_accel_bias_std: 0.001
+
+    # Foot velocity noise (slip model): treated as Brownian motion on
+    # the contact position while in contact  (m/s)
+    noise_contact_vel_std: 0.05
+
+    # AS5048A encoder measurement noise  (radians, ~1 deg)
+    noise_encoder_std: 0.0175
+
+    # ------------------------------------------------------------------
+    # Initial state covariance standard deviations
+    # ------------------------------------------------------------------
+
+    # Initial orientation uncertainty  (radians; 30 deg ≈ 0.524 rad)
+    init_orientation_std: 0.5236
+
+    # Initial velocity uncertainty  (m/s)
+    init_velocity_std: 1.0
+
+    # Initial position uncertainty  (m)
+    init_position_std: 0.1
+
+    # Initial contact position uncertainty — set when a new foot contact
+    # is detected; determined by FK accuracy + encoder noise  (m)
+    init_contact_std: 0.1
+
+    # Initial gyroscope bias uncertainty  (rad/s)
+    init_gyro_bias_std: 0.005
+
+    # Initial accelerometer bias uncertainty  (m/s²)
+    init_accel_bias_std: 0.05
+
+    # ------------------------------------------------------------------
+    # Physical constants
+    # ------------------------------------------------------------------
+
+    # Gravity vector in the world frame [x, y, z]  (m/s²)
+    # Z-up convention: gravity points in the -Z direction.
+    gravity: [0.0, 0.0, -9.81]
+
+    # ------------------------------------------------------------------
+    # Contact detection
+    # ------------------------------------------------------------------
+
+    # A foot is confirmed as "in contact" after this many consecutive
+    # active switch readings.  Prevents spurious contact events.
+    contact_debounce_count: 3
+
+    # ------------------------------------------------------------------
+    # Output
+    # ------------------------------------------------------------------
+
+    # Rate at which state estimates are published  (Hz)
+    publish_rate: 100.0

@@ -7,8 +7,8 @@
   <maintainer email="vismayshah121@gmail.com">vismay</maintainer>
   <license>BSD-3-Clause</license>
 
-  
-  <depend>rclcpp</depend>
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
   <depend>zeus_can_interface</depend>
 
   <test_depend>ament_lint_auto</test_depend>

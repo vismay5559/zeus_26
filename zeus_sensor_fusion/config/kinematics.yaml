@@ -1,0 +1,45 @@
+# Zeus Robot Kinematics Configuration
+# =====================================================================
+# IMPORTANT: All length values are PLACEHOLDERS.
+# Measure the physical robot and update before trusting the filter output.
+#
+# Coordinate convention (body/lower-torso frame, Z-up):
+#   +X = forward,  +Y = left,  +Z = up
+#
+# Joint mapping:
+#   joint_0 = left_hip_pitch    joint_5 = right_hip_pitch
+#   joint_1 = left_hip_roll     joint_6 = right_hip_roll
+#   joint_2 = left_knee_pitch   joint_7 = right_knee_pitch
+#   joint_3 = left_ankle_pitch  joint_8 = right_ankle_pitch
+#   joint_4 = waist_pitch       joint_9 = waist_roll  (not used in foot FK)
+# =====================================================================
+
+zeus_sensor_fusion:
+  ros__parameters:
+
+    # ------------------------------------------------------------------
+    # Leg segment lengths  [metres]
+    # ------------------------------------------------------------------
+
+    # Distance from hip joint centre to knee joint centre (thigh).
+    thigh_length: 0.30
+
+    # Distance from knee joint centre to ankle joint centre (shank / shin).
+    shank_length: 0.30
+
+    # Distance from ankle joint centre to the ground contact point.
+    # For a rigid foot this is the vertical offset from ankle to sole.
+    foot_height: 0.05
+
+    # ------------------------------------------------------------------
+    # Hip joint offsets from the lower-torso origin (body frame) [metres]
+    # Format: [x_forward, y_lateral, z_vertical]
+    # ------------------------------------------------------------------
+
+    # Left hip joint location in the body frame.
+    # +Y is to the left, so the left hip is offset in the +Y direction.
+    left_hip_offset:  [0.0,  0.05, 0.0]
+
+    # Right hip joint location in the body frame.
+    # -Y is to the right, so the right hip is offset in the -Y direction.
+    right_hip_offset: [0.0, -0.05, 0.0]

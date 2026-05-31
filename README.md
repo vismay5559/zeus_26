@@ -1,234 +1,569 @@
-# Zeus Workspace
+# Zeus — Bipedal Robot ROS 2 Workspace
 
-ROS 2 workspace for the Zeus biped running on a Raspberry Pi 5.
+Zeus is a 10-DOF bipedal robot controlled from a Raspberry Pi running ROS 2.
+This workspace contains every package needed to go from raw sensor hardware to
+a full state estimate that a walking controller can consume.
 
-Current hardware direction in this repo:
-- 10 series-elastic actuators commanded over CAN
-- 2 CAN buses: joints `1-5` on `can0`, joints `6-10` on `can1`
-- 10 daisy-chained AS5048A absolute after-spring encoders read over SPI
-- Gazebo and real-hardware packages live in the same workspace
+---
 
-## Workspace Layout
+## What the Robot Has
 
-This is the current repository structure, including files and folders that are present but still empty.
+| Hardware | Details |
+|----------|---------|
+| **Actuators** | 10 × ODrive S1 brushless motor drivers, 5 per CAN bus (`can0` / `can1`) |
+| **After-spring encoders** | 10 × AS5048A 13-bit magnetic encoders, SPI daisy-chain on `/dev/spidev1.0` |
+| **IMU** | Adafruit BNO085, SHTP protocol over SPI on `/dev/spidev0.0` |
+| **Contact switches** | 4 × mechanical switches wired directly to Raspberry Pi GPIO pins |
+| **CAN buses** | 2 × SocketCAN (`can0`, `can1`), 500 kbit/s |
 
-```text
-nexus_final_ws/
-├── LICENSE
-├── README.md
-├── zeus/
-│   ├── CMakeLists.txt
-│   ├── LICENSE
-│   ├── README.md
-│   └── package.xml
-├── zeus_bringup/
-│   ├── CMakeLists.txt
-│   ├── LICENSE
-│   ├── README.md
-│   ├── config/
-│   │   ├── fastdds_shm.xml
-│   │   └── zeus_controllers.yaml
-│   ├── launch/
-│   │   ├── hardware.launch.py
-│   │   └── sim.launch.py
-│   └── package.xml
-├── zeus_can_interface/
-│   ├── CMakeLists.txt
-│   ├── LICENSE
-│   ├── README.md
-│   ├── include/
-│   │   └── zeus_can_interface/
-│   │       └── socketcan.hpp
-│   ├── package.xml
-│   └── src/
-│       └── socketcan.cpp
-├── zeus_control_interface/
-│   ├── LICENSE
-│   ├── README.md
-│   ├── package.xml
-│   ├── resource/
-│   │   └── zeus_control_interface
-│   ├── setup.cfg
-│   ├── setup.py
-│   └── zeus_control_interface/
-│       ├── __init__.py
-│       └── rl_policy_node.py
-├── zeus_description/
-│   ├── CMakeLists.txt
-│   ├── LICENSE
-│   ├── README.md
-│   ├── launch/
-│   │   └── display.launch.py
-│   ├── meshes/
-│   ├── package.xml
-│   ├── rviz/
-│   └── urdf/
-│       ├── zeus_ros2_control.xacro
-│       └── zeus_urdf.xacro
-├── zeus_gazebo/
-│   ├── CMakeLists.txt
-│   ├── LICENSE
-│   ├── README.md
-│   ├── launch/
-│   ├── models/
-│   ├── package.xml
-│   └── worlds/
-└── zeus_hardware_interface/
-    ├── CMakeLists.txt
-    ├── LICENSE
-    ├── README.Md
-    ├── include/
-    │   └── zeus_hardware_interface/
-    │       ├── encoder_utils.hpp
-    │       └── zeus_system.hpp
-    ├── package.xml
-    ├── src/
-    │   ├── encoder_utils.cpp
-    │   └── zeus_system.cpp
-    └── zeus_hardware_interface.xml
+### Leg and Joint Mapping
+
+```
+Joint index │ Actuator         │ CAN bus │ ODrive node ID
+────────────┼──────────────────┼─────────┼───────────────
+  joint_0   │ left_hip_pitch   │  can0   │  1
+  joint_1   │ left_hip_roll    │  can0   │  2
+  joint_2   │ left_knee_pitch  │  can0   │  3
+  joint_3   │ left_ankle_pitch │  can0   │  4
+  joint_4   │ waist_pitch      │  can0   │  5
+  joint_5   │ right_hip_pitch  │  can1   │  1
+  joint_6   │ right_hip_roll   │  can1   │  2
+  joint_7   │ right_knee_pitch │  can1   │  3
+  joint_8   │ right_ankle_pitch│  can1   │  4
+  joint_9   │ waist_roll       │  can1   │  5
 ```
 
+### Contact Switch GPIO Pins (BCM numbering)
 
-## Package Roles
+```
+Switch           │ GPIO pin
+─────────────────┼─────────
+left_toe_switch  │  17
+left_heel_switch │  27
+right_toe_switch │  22
+right_heel_switch│  23
+```
 
-### `zeus`
-Metapackage that depends on the other `zeus_*` packages.
+---
 
-### `zeus_bringup`
-Place for launch files and controller config.
+## How Data Flows
 
-Current contents:
-- [zeus_controllers.yaml](/home/vismay/nexus_final_ws/zeus_bringup/config/zeus_controllers.yaml): sets `controller_manager` update rate to `1000 Hz`, exposes `after_spring_angle` through `joint_state_broadcaster`, and accepts `target_actuator_angle` through a forward command controller
-- [fastdds_shm.xml](/home/vismay/nexus_final_ws/zeus_bringup/config/fastdds_shm.xml): Fast DDS profile that forces shared-memory-only transport so the Python RL node and C++ ROS 2 nodes can communicate through SHM on the same machine
-- [hardware.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/hardware.launch.py): sets `FASTRTPS_DEFAULT_PROFILES_FILE` to the shared-memory profile, launches `ros2_control_node`, and launches `zeus_control_interface/rl_policy_node`
-- [sim.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/sim.launch.py): currently empty
+```
+Physical hardware
+  ├── ODrive S1 (CAN) ──────────────────┐
+  ├── AS5048A encoders (SPI) ────────────┤
+  ├── BNO085 IMU (SPI) ─────────────────┤──► zeus_hardware_interface
+  └── Mechanical switches (GPIO sysfs) ──┘           │
+                                                      │ ROS 2 state interfaces
+                                                      ▼
+                                           ros2_control controller_manager
+                                                      │
+                          ┌───────────────────────────┼──────────────────┐
+                          ▼                           ▼                  ▼
+               joint_state_broadcaster   imu_sensor_broadcaster   contact_state_broadcaster
+                          │                           │                  │
+                          └───────────────┬───────────┘                  │
+                                          ▼                              │
+                                zeus_sensor_fusion ◄─────────────────────┘
+                                          │
+                              /zeus/estimated_height
+                              /zeus/estimated_velocity
+                              /zeus/estimated_pose
+```
+
+ROS 2 control vocabulary:
+- **command interface** — a value ROS writes to hardware (target joint angle).
+- **state interface** — a value hardware reports back to ROS (sensor reading).
+
+---
+
+## Interface Count: 44 state + 10 command
+
+### Command Interfaces (10)
+
+```
+joint_0/target_actuator_angle
+joint_1/target_actuator_angle
+...
+joint_9/target_actuator_angle
+```
+
+### State Interfaces (44)
+
+```
+After-spring encoder angle (10):
+  joint_0/after_spring_angle … joint_9/after_spring_angle
+
+ODrive load encoder position (10):
+  joint_0/load_encoder_position … joint_9/load_encoder_position
+
+ODrive torque estimate (10):
+  joint_0/torque_estimate … joint_9/torque_estimate
+
+IMU (10):
+  imu/orientation.x   imu/orientation.y   imu/orientation.z   imu/orientation.w
+  imu/linear_acceleration.x   .y   .z
+  imu/angular_velocity.x      .y   .z
+
+Mechanical contact switches (4):
+  left_toe_switch/contact
+  left_heel_switch/contact
+  right_toe_switch/contact
+  right_heel_switch/contact
+```
+
+### Target Update Rates
+
+```
+controller_manager loop:    1000 Hz
+Actuator CAN commands:      1000 Hz
+AS5048A encoder reads:      1000 Hz
+GPIO contact switch reads:  1000 Hz   (pre-opened sysfs fd — no open() overhead)
+ODrive CAN telemetry:       1000 Hz
+BNO085 IMU reports:          400 Hz
+Sensor fusion publish:       100 Hz
+```
+
+---
+
+## Package Layout
+
+```
+nexus_final_ws/
+├── zeus/                       Metapackage (groups all other packages)
+├── zeus_can_interface/         Low-level SocketCAN driver for ODrive CAN messages
+├── zeus_hardware_interface/    ROS 2 control hardware plugin — the main hardware bridge
+├── zeus_description/           Robot URDF/xacro and ros2_control configuration
+├── zeus_bringup/               Launch files and controller YAML config
+├── zeus_control_interface/     Python placeholder for RL policy commands
+├── zeus_sensor_fusion/         Contact-aided InEKF state estimator
+└── zeus_gazebo/                Simulation scaffold (not yet active)
+```
+
+---
+
+## Package Details
 
 ### `zeus_can_interface`
-Low-level CAN transport package.
 
-Main files:
-- [socketcan.hpp](/home/vismay/nexus_final_ws/zeus_can_interface/include/zeus_can_interface/socketcan.hpp)
-- [socketcan.cpp](/home/vismay/nexus_final_ws/zeus_can_interface/src/socketcan.cpp)
+A thin C++ library wrapping Linux SocketCAN.
 
-What it currently does:
-- opens a Linux SocketCAN raw socket
-- binds to a specific interface such as `can0` or `can1`
-- packs and sends ODESC `Set_Input_Pos` frames
-- exposes a non-blocking `read_frame()` helper for future CAN telemetry
+- Opens a raw CAN socket on any named interface (`can0`, `can1`, ...).
+- `send_position_target(node_id, position)` — sends ODrive `Set_Input_Pos` command.
+- `read_frame(frame)` — non-blocking single-frame read.
+- ODrive CANSimple message IDs decoded:
+  - `0x009 Get_Encoder_Estimates` — position (rev) and velocity (rev/s).
+  - `0x01C Get_Torques` — torque target and torque estimate (Nm).
 
-### `zeus_control_interface`
-Python-side control package.
+Key files:
+- [zeus_can_interface/include/zeus_can_interface/socketcan.hpp](zeus_can_interface/include/zeus_can_interface/socketcan.hpp)
+- [zeus_can_interface/src/socketcan.cpp](zeus_can_interface/src/socketcan.cpp)
 
-Current state:
-- package scaffolding is present
-- [rl_policy_node.py](/home/vismay/nexus_final_ws/zeus_control_interface/zeus_control_interface/rl_policy_node.py) is currently empty
-- the top-level hardware launch already reserves a launch slot for this node
-
-### `zeus_description`
-Robot description package.
-
-Main files:
-- [zeus_ros2_control.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus_ros2_control.xacro): current hardware interface configuration
-- [zeus_urdf.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus_urdf.xacro): currently empty
-
-Current empty paths:
-- [display.launch.py](/home/vismay/nexus_final_ws/zeus_description/launch/display.launch.py)
-- `meshes/`
-- `rviz/`
-
-### `zeus_gazebo`
-Simulation package intended for Gazebo integration.
-
-Current state:
-- package scaffolding is present
-- `launch/`, `models/`, and `worlds/` currently exist but are empty
+---
 
 ### `zeus_hardware_interface`
-ROS 2 hardware plugin that bridges ROS control to CAN and SPI.
 
-Main files:
-- [zeus_system.hpp](/home/vismay/nexus_final_ws/zeus_hardware_interface/include/zeus_hardware_interface/zeus_system.hpp)
-- [zeus_system.cpp](/home/vismay/nexus_final_ws/zeus_hardware_interface/src/zeus_system.cpp)
-- [encoder_utils.hpp](/home/vismay/nexus_final_ws/zeus_hardware_interface/include/zeus_hardware_interface/encoder_utils.hpp)
-- [encoder_utils.cpp](/home/vismay/nexus_final_ws/zeus_hardware_interface/src/encoder_utils.cpp)
-- [zeus_hardware_interface.xml](/home/vismay/nexus_final_ws/zeus_hardware_interface/zeus_hardware_interface.xml)
+The ROS 2 control `SystemInterface` plugin. This is where all sensors and actuators live.
 
-What it currently does:
-- exports `target_actuator_angle` as the command interface
-- exports `after_spring_angle` as the state interface
-- opens both `can0` and `can1`
-- routes joints `0-4` to `can0` and joints `5-9` to `can1` by configuration
-- reads the AS5048A encoder daisy chain over SPI
-- maps encoder readings back to joint states
-- low-pass filters the after-spring angle before publishing it to ROS 2
+Key files:
+- [zeus_hardware_interface/include/zeus_hardware_interface/zeus_system.hpp](zeus_hardware_interface/include/zeus_hardware_interface/zeus_system.hpp)
+- [zeus_hardware_interface/src/zeus_system.cpp](zeus_hardware_interface/src/zeus_system.cpp)
+- [zeus_hardware_interface/src/encoder_utils.cpp](zeus_hardware_interface/src/encoder_utils.cpp) — AS5048A SPI reads
+- [zeus_hardware_interface/src/sensor_utils.cpp](zeus_hardware_interface/src/sensor_utils.cpp) — BNO085 SHTP/SPI reads
 
-## Current Hardware Flow
+#### Lifecycle
 
-The intended real-hardware control path in this workspace is:
+| Stage | What happens |
+|-------|-------------|
+| `on_init()` | Reads xacro hardware params; allocates all state/command arrays; detects sensor elements from URDF |
+| `on_configure()` | Opens CAN sockets, encoder SPI, IMU SPI; exports GPIO pins via sysfs and pre-opens value file descriptors |
+| `on_activate()` | Marks hardware ready; enables ODrive cyclic telemetry |
+| `read()` | 1. Reads AS5048A encoders → `after_spring_angle`. 2. Drains ODrive CAN frames → `load_encoder_position`, `torque_estimate`. 3. Reads BNO085 SHTP packets → IMU states. 4. Reads GPIO switches → `contact` states |
+| `write()` | Sends `target_actuator_angle` to each ODrive via `Set_Input_Pos` |
+| `on_deactivate()` | Stops issuing commands |
+| `on_cleanup()` | Closes all fds; unexports GPIO pins; closes SPI/CAN sockets |
 
-1. `hardware.launch.py` exports `FASTRTPS_DEFAULT_PROFILES_FILE` pointing to [fastdds_shm.xml](/home/vismay/nexus_final_ws/zeus_bringup/config/fastdds_shm.xml).
-2. Fast DDS is configured to use shared memory only for nodes launched in that process tree.
-3. The Python RL side and the C++ ROS 2 side exchange command/state data through local SHM transport.
-4. A ROS 2 controller writes `target_actuator_angle`.
-5. `zeus_hardware_interface` receives that command.
-6. The command is smoothed/interpolated inside the hardware interface.
-7. The target is sent over CAN using `zeus_can_interface`.
-8. ODESC receives `Set_Input_Pos` commands on either `can0` or `can1`.
-9. SPI reads the 10 after-spring encoders.
-10. The filtered encoder angle is published as `after_spring_angle`.
+#### AS5048A Encoder Chain
 
-## Fast DDS Shared Memory
+10 encoders daisy-chained on SPI. Each encoder returns a 13-bit angle (0–8191 counts = 0–2π radians). The driver reads all 10 in one 20-byte SPI transaction, applies parity checking, and runs a small first-order low-pass filter (α = 0.2) to reduce noise.
 
-The workspace now includes [fastdds_shm.xml](/home/vismay/nexus_final_ws/zeus_bringup/config/fastdds_shm.xml), which defines a Fast DDS participant profile named `shm_only_profile`.
+#### BNO085 IMU
 
-What it currently does:
-- disables builtin transports
-- enables only SHM transport
-- sets `maxMessageSize` to `65000`
+The BNO085 uses SHTP (Sensor Hub Transport Protocol) over SPI rather than simple registers. The driver enables three report types:
+- Rotation vector → `orientation.{x,y,z,w}`
+- Linear acceleration (gravity-removed) → `linear_acceleration.{x,y,z}`
+- Gyroscope → `angular_velocity.{x,y,z}`
 
-This is meant for low-latency communication between:
-- the Python RL process in `zeus_control_interface`
-- the C++ ROS 2 hardware/control side
+Default wiring in `zeus_ros2_control.xacro`:
+```
+/dev/spidev0.0  1 MHz  INT=GPIO24  RESET=GPIO25  report_interval=2500µs
+```
 
-The SHM profile is applied from [hardware.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/hardware.launch.py) by setting the `FASTRTPS_DEFAULT_PROFILES_FILE` environment variable before launching nodes.
+#### Mechanical Contact Switches
 
-## Current `ros2_control` Configuration
+The 4 switches are wired directly to GPIO pins. The driver uses the Linux sysfs GPIO interface (`/sys/class/gpio/`):
 
-The hardware description in [zeus.ros2_control.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus.ros2_control.xacro) currently sets:
+1. **`on_configure()`**: exports each pin, sets direction to `in`, opens `/sys/class/gpio/gpioN/value` and keeps the file descriptor open.
+2. **`read()`**: `lseek(fd, 0, SEEK_SET); read(fd, buf, 1)` — reads a single `'0'` or `'1'` byte without reopening, giving ~1 µs latency.
+3. **`on_cleanup()`**: closes fds, unexports pins.
 
-- `can0` for joints `joint_0` to `joint_4`
-- `can1` for joints `joint_5` to `joint_9`
-- `node_id` `1..5` on each CAN bus
-- SPI device `/dev/spidev1.0`
-- SPI speed `1000000`
-- SPI mode `1`
-- `10` daisy-chained encoders
-- direct encoder-to-joint map `0,1,2,3,4,5,6,7,8,9`
+Each switch has an `active_low` parameter. If `active_low=true`, a LOW pin signal means the switch is pressed.
+
+---
+
+### `zeus_description`
+
+URDF and ros2_control xacro files.
+
+Key files:
+- [zeus_description/urdf/zeus_urdf.xacro](zeus_description/urdf/zeus_urdf.xacro) — robot geometry
+- [zeus_description/urdf/zeus_ros2_control.xacro](zeus_description/urdf/zeus_ros2_control.xacro) — hardware plugin config, all sensor/joint declarations
+
+The xacro declares:
+- Hardware plugin: `zeus_hardware_interface/ZeusSystemHardware`
+- All 10 joint command/state interfaces
+- IMU sensor element
+- 4 mechanical switch sensor elements (with gpio_pin and active_low params)
+- ODrive telemetry interfaces
+
+---
+
+### `zeus_bringup`
+
+Launch files and controller YAML.
+
+#### Controller config: [zeus_bringup/config/zeus_controllers.yaml](zeus_bringup/config/zeus_controllers.yaml)
+
+| Controller | Type | Purpose |
+|-----------|------|---------|
+| `joint_state_broadcaster` | JointStateBroadcaster | Publishes joint encoder/ODrive states |
+| `imu_sensor_broadcaster` | IMUSensorBroadcaster | Publishes `/imu_sensor_broadcaster/imu` |
+| `contact_state_broadcaster` | JointStateBroadcaster | Publishes switch contact states |
+| `rl_forward_command_controller` | ForwardCommandController | Accepts 10-joint target angle array |
+
+#### Launch files
+
+| File | Purpose |
+|------|---------|
+| [hardware.launch.py](zeus_bringup/launch/hardware.launch.py) | Full robot stack — all sensors + actuators + all controllers |
+| [single_actuator_command_test.launch.py](zeus_bringup/launch/single_actuator_command_test.launch.py) | Command-only test for one joint (no sensors needed) |
+| [hardcoded_single_actuator_test.launch.py](zeus_bringup/launch/hardcoded_single_actuator_test.launch.py) | Automatically sends a small command sequence to one joint |
+| [sim.launch.py](zeus_bringup/launch/sim.launch.py) | Simulation bringup (Gazebo — not yet active) |
+
+---
+
+### `zeus_sensor_fusion`
+
+A full state estimator for the lower torso. Given IMU data, encoder angles, and contact switch readings, it outputs: velocity, position, orientation, and height above ground — all with uncertainty estimates.
+
+Key files:
+- [zeus_sensor_fusion/zeus_sensor_fusion/lie_group.py](zeus_sensor_fusion/zeus_sensor_fusion/lie_group.py) — SE_{N+2}(3) Lie group math
+- [zeus_sensor_fusion/zeus_sensor_fusion/kinematics.py](zeus_sensor_fusion/zeus_sensor_fusion/kinematics.py) — Zeus leg forward kinematics
+- [zeus_sensor_fusion/zeus_sensor_fusion/inekf.py](zeus_sensor_fusion/zeus_sensor_fusion/inekf.py) — the filter itself
+- [zeus_sensor_fusion/zeus_sensor_fusion/sensor_fusion_node.py](zeus_sensor_fusion/zeus_sensor_fusion/sensor_fusion_node.py) — ROS 2 node
+- [zeus_sensor_fusion/config/kinematics.yaml](zeus_sensor_fusion/config/kinematics.yaml) — link lengths **(must be measured)**
+- [zeus_sensor_fusion/config/inekf_params.yaml](zeus_sensor_fusion/config/inekf_params.yaml) — filter noise parameters
+
+#### The Algorithm: Contact-Aided Right-Invariant EKF (InEKF)
+
+Based on Hartley et al. 2019, "Contact-Aided Invariant Extended Kalman Filtering for Robot State Estimation."
+
+**Why not a standard EKF?**
+
+A standard EKF linearises the system around the current estimate. When the state is far from the truth (e.g. at startup), the linearisation error causes the filter to diverge or converge slowly. The InEKF exploits the geometric structure of the robot's motion: the error dynamics on the SE_{N+2}(3) Lie group are *independent of the state estimate*, which makes the filter far more robust and fast-converging.
+
+**State representation**
+
+The filter tracks a matrix `X` on the Lie group SE_{N+2}(3), plus a bias vector `θ`:
+
+```
+X  =  ┌ R    v    p    d_L   d_R ┐     (7×7 when both feet are in contact)
+       │ 0    1    0    0     0   │
+       │ 0    0    1    0     0   │
+       │ 0    0    0    1     0   │
+       └ 0    0    0    0     1   ┘
+
+R     : 3×3 rotation matrix (body → world)
+v     : 3-vector, linear velocity in world frame
+p     : 3-vector, position of IMU in world frame
+d_L/R : 3-vector, world-frame position of left/right foot contact points
+θ     : [b_g; b_a], 6-vector, IMU gyro and accel biases
+```
+
+The covariance `P` tracks uncertainty in all of the above.
+
+**Predict step (runs at IMU rate ~400 Hz)**
+
+Uses the gyroscope and accelerometer to propagate `X` forward in time. The IMU biases are subtracted first. The integration uses exact SO(3) exponential maps (Γ₀, Γ₁, Γ₂) rather than a first-order approximation, so it stays accurate even at large angular rates.
+
+**Measurement update (runs when a foot is in contact)**
+
+Each time new encoder angles arrive (1000 Hz), forward kinematics computes where the foot contact point is in the body frame. Since the foot is on the ground and not sliding (contact assumption), this gives a constraint:
+
+```
+world-frame contact position = R · (FK foot position) + p
+```
+
+This constraint is applied as a right-invariant observation update. The observation noise is propagated through the FK Jacobian, so encoder angle uncertainty is correctly accounted for.
+
+**Contact management**
+
+- **Rising edge** (switch pressed for N consecutive reads): the foot's world position is initialised from the current state estimate plus FK. A new column is added to `X` and the covariance is augmented.
+- **Falling edge** (switch released): the foot's column is removed from `X` and marginalised out of `P`.
+- Debounce is configurable (`contact_debounce_count`, default 3 reads).
+
+**Forward kinematics chain (per leg)**
+
+```
+T_hip_offset
+  → Ry(hip_pitch)
+  → Rx(hip_roll)
+  → translate(0, 0, -thigh_length)
+  → Ry(knee_pitch)
+  → translate(0, 0, -shank_length)
+  → Ry(ankle_pitch)
+  → translate(0, 0, -foot_height)
+  ──► B_p_BC  (contact point in body frame)
+```
+
+Waist joints (joint_4, joint_9) are NOT included — they connect lower torso to upper body, and since the IMU lives in the lower torso, the waist angles do not affect foot position in the body frame.
+
+#### Published Topics
+
+| Topic | Type | Description |
+|-------|------|-------------|
+| `/zeus/estimated_height` | `std_msgs/Float64` | z-coordinate of IMU in world frame (metres above ground) |
+| `/zeus/estimated_velocity` | `geometry_msgs/TwistWithCovariance` | Body-frame linear velocity + 3×3 covariance |
+| `/zeus/estimated_pose` | `geometry_msgs/PoseWithCovariance` | Full position + orientation + covariance |
+| `/zeus/contact_state` | `std_msgs/Bool` | True if any foot is currently in confirmed contact |
+| `/zeus/imu_bias_gyro` | `geometry_msgs/Vector3Stamped` | Estimated gyroscope bias (rad/s) |
+| `/zeus/imu_bias_accel` | `geometry_msgs/Vector3Stamped` | Estimated accelerometer bias (m/s²) |
+
+#### Subscribed Topics
+
+| Topic | Type | Description |
+|-------|------|-------------|
+| `/imu_sensor_broadcaster/imu` | `sensor_msgs/Imu` | BNO085 IMU data — drives predict step |
+| `/dynamic_joint_states` | `control_msgs/DynamicJointState` | Encoder angles — drives FK measurements |
+| `/contact_state_broadcaster/dynamic_joint_states` | `control_msgs/DynamicJointState` | Switch states — drives contact management |
+
+#### Height Definition
+
+Height = `X[2, 4]` = the z-component of the IMU world-frame position. When a foot first makes contact the filter initialises that foot's world position assuming the ground is at z = 0. As the robot moves, the IMU z-coordinate tracks the true height above that ground plane.
+
+---
+
+### `zeus_control_interface`
+
+Python package for sending commands to the robot.
+
+- [rl_policy_node.py](zeus_control_interface/zeus_control_interface/rl_policy_node.py) — placeholder for a reinforcement learning policy that publishes joint targets to `/rl_forward_command_controller/commands`.
+- [hardcoded_actuator_test_node.py](zeus_control_interface/zeus_control_interface/hardcoded_actuator_test_node.py) — publishes a simple command sequence for hardware bring-up.
+
+---
+
+### `zeus_gazebo`
+
+Simulation scaffold. Not yet functional — Gazebo world, model, and launch files are placeholders.
+
+---
 
 ## Build
 
-Typical workspace build:
+Full build from workspace root:
 
 ```bash
+cd ~/nexus_final_ws
 colcon build
 source install/setup.bash
 ```
 
-Focused rebuild for the hardware path:
+Faster incremental build (hardware + bringup only):
 
 ```bash
-colcon build --packages-select zeus_can_interface zeus_hardware_interface
+colcon build --packages-select zeus_can_interface zeus_hardware_interface zeus_description zeus_bringup
 source install/setup.bash
 ```
 
-## Current Gaps
+Sensor fusion only:
 
-A few important source files are still placeholders:
-- [zeus_bringup/launch/sim.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/sim.launch.py)
-- [zeus_description/launch/display.launch.py](/home/vismay/nexus_final_ws/zeus_description/launch/display.launch.py)
-- [zeus_description/urdf/zeus_urdf.xacro](/home/vismay/nexus_final_ws/zeus_description/urdf/zeus.urdf.xacro)
-- [zeus_control_interface/zeus_control_interface/rl_policy_node.py](/home/vismay/nexus_final_ws/zeus_control_interface/zeus_control_interface/rl_policy_node.py)
+```bash
+colcon build --packages-select zeus_sensor_fusion
+source install/setup.bash
+```
 
-Also note that [hardware.launch.py](/home/vismay/nexus_final_ws/zeus_bringup/launch/hardware.launch.py) is no longer empty, but it still contains a placeholder comment where the full `ros2_control_node` parameters should be added.
+---
 
-So right now the strongest implemented part of the repo is the hardware-side CAN/SPI stack, the ROS 2 hardware plugin around it, and the shared-memory bringup direction for Python/C++ communication.
+## Running on Hardware
+
+### 1. Bring up CAN buses
+
+```bash
+sudo ip link set can0 down
+sudo ip link set can0 type can bitrate 500000
+sudo ip link set can0 up
+
+sudo ip link set can1 down
+sudo ip link set can1 type can bitrate 500000
+sudo ip link set can1 up
+```
+
+### 2. Launch the full hardware stack
+
+```bash
+source install/setup.bash
+ros2 launch zeus_bringup hardware.launch.py
+```
+
+### 3. Launch sensor fusion (in a second terminal)
+
+```bash
+source install/setup.bash
+ros2 launch zeus_sensor_fusion sensor_fusion.launch.py
+```
+
+### 4. Check everything started correctly
+
+```bash
+# List hardware interfaces (expect 44 state + 10 command)
+ros2 control list_hardware_interfaces
+
+# List active controllers
+ros2 control list_controllers
+
+# Watch estimated height
+ros2 topic echo /zeus/estimated_height
+
+# Watch estimated velocity
+ros2 topic echo /zeus/estimated_velocity
+```
+
+---
+
+## Sending Actuator Commands
+
+The full robot forward command controller expects 10 values (one per joint, in radians):
+
+```bash
+ros2 topic pub /rl_forward_command_controller/commands std_msgs/msg/Float64MultiArray \
+  "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}" --once
+```
+
+To move only `joint_0` (left hip pitch) by a small amount:
+
+```bash
+ros2 topic pub /rl_forward_command_controller/commands std_msgs/msg/Float64MultiArray \
+  "{data: [0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}" --once
+```
+
+> **Use very small values during initial bring-up.** The command is sent directly to the ODrive position controller. The units depend on your ODrive gear ratio configuration.
+
+---
+
+## Single-Actuator Tests
+
+These tests bypass all sensors and only test the command path:
+
+```
+ROS 2 command → hardware interface → SocketCAN → ODrive
+```
+
+Useful for checking that a single motor responds before the full sensor stack is wired.
+
+**Command-only test (you control the target value):**
+
+```bash
+ros2 launch zeus_bringup single_actuator_command_test.launch.py can_interface:=can0 node_id:=1
+ros2 topic pub /single_actuator_command_controller/commands std_msgs/msg/Float64MultiArray "{data: [0.02]}" --once
+```
+
+**Hardcoded sequence (moves automatically then returns to zero):**
+
+```bash
+ros2 launch zeus_bringup hardcoded_single_actuator_test.launch.py can_interface:=can0 node_id:=1 target:=0.02
+```
+
+Monitor CAN traffic while these run:
+
+```bash
+candump can0
+```
+
+---
+
+## Before You Trust the State Estimates
+
+The kinematics config at [zeus_sensor_fusion/config/kinematics.yaml](zeus_sensor_fusion/config/kinematics.yaml) contains **placeholder link lengths**:
+
+```yaml
+thigh_length: 0.30   # PLACEHOLDER — measure hip joint to knee joint (metres)
+shank_length: 0.30   # PLACEHOLDER — measure knee joint to ankle joint (metres)
+foot_height:  0.05   # PLACEHOLDER — measure ankle joint to contact point (metres)
+left_hip_offset:  [0.0,  0.05, 0.0]   # PLACEHOLDER — lateral hip position in body frame
+right_hip_offset: [0.0, -0.05, 0.0]   # PLACEHOLDER
+```
+
+Measure the actual distances on the physical robot and update this file before relying on height or velocity estimates. The filter will run with placeholder values but the estimates will be wrong.
+
+---
+
+## Useful Debug Commands
+
+```bash
+# Hardware
+ros2 control list_hardware_components
+ros2 control list_hardware_interfaces
+ros2 control list_controllers
+
+# Sensors
+ros2 topic echo /imu_sensor_broadcaster/imu
+ros2 topic echo /dynamic_joint_states
+ros2 topic echo /contact_state_broadcaster/dynamic_joint_states
+
+# State estimates
+ros2 topic echo /zeus/estimated_height
+ros2 topic echo /zeus/estimated_velocity
+ros2 topic echo /zeus/estimated_pose
+ros2 topic echo /zeus/imu_bias_gyro
+ros2 topic echo /zeus/imu_bias_accel
+
+# CAN bus
+candump can0
+candump can1
+
+# Check GPIO switch reading
+# Press a switch physically, then:
+cat /sys/class/gpio/gpio17/value    # left_toe
+cat /sys/class/gpio/gpio27/value    # left_heel
+cat /sys/class/gpio/gpio22/value    # right_toe
+cat /sys/class/gpio/gpio23/value    # right_heel
+```
+
+---
+
+## Hardware Wiring Summary
+
+```
+Raspberry Pi SPI0 (CE0) → /dev/spidev0.0 → BNO085 IMU
+Raspberry Pi SPI1 (CE0) → /dev/spidev1.0 → AS5048A encoder daisy-chain (10 encoders)
+
+Raspberry Pi GPIO 17 → left_toe_switch
+Raspberry Pi GPIO 27 → left_heel_switch
+Raspberry Pi GPIO 22 → right_toe_switch
+Raspberry Pi GPIO 23 → right_heel_switch
+
+Raspberry Pi CAN (via MCP2515 or similar) → can0 → ODrive nodes 1–5 (left leg + waist pitch)
+Raspberry Pi CAN (via MCP2515 or similar) → can1 → ODrive nodes 1–5 (right leg + waist roll)
+```
+
+All wiring parameters (SPI device paths, GPIO numbers, CAN bitrate) can be overridden in [zeus_description/urdf/zeus_ros2_control.xacro](zeus_description/urdf/zeus_ros2_control.xacro).
+
+---
+
+## Current Limitations
+
+- `zeus_gazebo` is a scaffold — simulation is not functional yet.
+- `zeus_control_interface/rl_policy_node.py` is a placeholder — no RL policy is loaded yet.
+- Link lengths in `zeus_sensor_fusion/config/kinematics.yaml` are placeholders and must be measured.
+- The BNO085 SPI/SHTP driver has not been tested on final hardware wiring; verify INT and RESET GPIO numbers match your Pi setup.
+- ODrive position commands are in the ODrive's native units (revolutions, depending on encoder CPR and gear ratio configuration on the ODrive). Calibrate each axis before commanding motion.

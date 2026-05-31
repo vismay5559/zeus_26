@@ -21,7 +21,8 @@ setup(
     entry_points={
         'console_scripts': [
             # This links the terminal command to your python script
-            'rl_policy_node = zeus_control_interface.rl_policy_node:main'
+            'rl_policy_node = zeus_control_interface.rl_policy_node:main',
+            'hardcoded_actuator_test_node = zeus_control_interface.hardcoded_actuator_test_node:main',
         ],
     },
 )
