@@ -373,6 +373,10 @@ hardware_interface::CallbackReturn ZeusSystemHardware::on_deactivate(
 hardware_interface::return_type ZeusSystemHardware::read(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
+  // Always drain CAN telemetry frames so load_encoder_position and torque_estimate
+  // are populated even when running in command_only_mode (no SPI encoders connected).
+  read_odrive_can_telemetry();
+
   if (command_only_mode_) {
     hw_states_ = hw_commands_;
     return hardware_interface::return_type::OK;
