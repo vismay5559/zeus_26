@@ -11,9 +11,16 @@ find_package(ament_cmake REQUIRED)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
-install (
+install(
   DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
+)
+
+install(
+  PROGRAMS
+    scripts/single_joint_commander.py
+    scripts/trajectory_plotter.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)

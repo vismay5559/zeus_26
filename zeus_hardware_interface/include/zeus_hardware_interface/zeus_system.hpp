@@ -51,7 +51,7 @@ private:
   uint32_t node_id_for_joint(std::size_t joint_index) const;
   void read_odrive_can_telemetry();
   void drain_odrive_can_telemetry(zeus_can_interface::SocketCANTransceiver & can_driver, bool uses_can0);
-  void handle_odrive_can_frame(const struct can_frame & frame, bool uses_can0);
+  void handle_odrive_can_frame(const struct canfd_frame & frame, bool uses_can0);
   std::size_t joint_index_for_can_node(uint32_t node_id, bool uses_can0) const;
   bool has_sensor_state(const std::string & sensor_name, const std::string & interface_name) const;
   void set_sensor_state(
@@ -64,6 +64,7 @@ private:
 
   std::vector<double> hw_commands_;
   std::vector<double> hw_states_;
+  std::vector<double> prev_hw_commands_;   // one cycle old, for velocity feedforward
   std::vector<double> odrive_load_encoder_positions_;
   std::vector<double> odrive_torque_estimates_;
   std::vector<double> current_interpolated_targets_;

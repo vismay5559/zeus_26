@@ -97,10 +97,11 @@ hardware_interface::CallbackReturn ZeusSystemHardware::on_init(
 
   const std::size_t joint_count = info_.joints.size();
   hw_states_.assign(joint_count, 0.0);
-  hw_commands_.assign(joint_count, 0.0);
+  hw_commands_.assign(joint_count, std::numeric_limits<double>::quiet_NaN());
   odrive_load_encoder_positions_.assign(joint_count, 0.0);
   odrive_torque_estimates_.assign(joint_count, 0.0);
-  current_interpolated_targets_.assign(joint_count, 0.0);
+  current_interpolated_targets_.assign(joint_count, std::numeric_limits<double>::quiet_NaN());
+  prev_hw_commands_.assign(joint_count, std::numeric_limits<double>::quiet_NaN());
   spi_positions_buffer_.assign(joint_count, 0.0);
 
   // Pre-allocate zero-copy SPI buffers (0xFF triggers angle read)
@@ -378,7 +379,11 @@ hardware_interface::return_type ZeusSystemHardware::read(
   read_odrive_can_telemetry();
 
   if (command_only_mode_) {
-    hw_states_ = hw_commands_;
+    for (std::size_t i = 0; i < hw_states_.size(); ++i) {
+      if (!std::isnan(hw_commands_[i])) {
+        hw_states_[i] = hw_commands_[i];
+      }
+    }
     return hardware_interface::return_type::OK;
   }
 
@@ -410,14 +415,25 @@ hardware_interface::return_type ZeusSystemHardware::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
   for (std::size_t i = 0; i < info_.joints.size(); ++i) {
-    const double step_size = (hw_commands_[i] - current_interpolated_targets_[i]) * 0.25;
-    current_interpolated_targets_[i] += step_size;
+    if (std::isnan(hw_commands_[i])) {
+      continue;  // forward_command_controller publishes NaN until the first command arrives
+    }
+
+    // The commander already linearly interpolates the 22 Hz gait waypoints to a
+    // smooth 1 kHz stream. Pass the command straight through — no extra filter.
+    // Velocity feedforward = position change between consecutive 1 kHz commands
+    // (Δpos / 1ms = rev/s). This tells the ODrive how fast to move right now,
+    // eliminating phase-lag without needing higher position gains.
+    float vel_ff = 0.0f;
+    if (!std::isnan(prev_hw_commands_[i])) {
+      vel_ff = static_cast<float>((hw_commands_[i] - prev_hw_commands_[i]) * 1000.0);
+    }
+    prev_hw_commands_[i] = hw_commands_[i];
 
     auto & can_driver = use_can0_for_joint(i) ? can0_driver_ : can1_driver_;
     const uint32_t node_id = node_id_for_joint(i);
 
-    can_driver.send_position_target(node_id, static_cast<float>(current_interpolated_targets_[i]));
-    // Soft error handling: Missed frames on a non-blocking socket are ignored to maintain 1kHz continuity.
+    can_driver.send_position_target(node_id, static_cast<float>(hw_commands_[i]), vel_ff);
   }
 
   return hardware_interface::return_type::OK;
@@ -485,7 +501,7 @@ void ZeusSystemHardware::read_odrive_can_telemetry()
 void ZeusSystemHardware::drain_odrive_can_telemetry(
   zeus_can_interface::SocketCANTransceiver & can_driver, bool uses_can0)
 {
-  struct can_frame frame;
+  struct canfd_frame frame;
   std::size_t frames_read = 0;
   while (frames_read < kMaxCanFramesPerRead && can_driver.read_frame(frame)) {
     handle_odrive_can_frame(frame, uses_can0);
@@ -493,9 +509,9 @@ void ZeusSystemHardware::drain_odrive_can_telemetry(
   }
 }
 
-void ZeusSystemHardware::handle_odrive_can_frame(const struct can_frame & frame, bool uses_can0)
+void ZeusSystemHardware::handle_odrive_can_frame(const struct canfd_frame & frame, bool uses_can0)
 {
-  if ((frame.can_id & CAN_RTR_FLAG) != 0 || frame.can_dlc < 8) {
+  if ((frame.can_id & CAN_RTR_FLAG) != 0 || frame.len < 8) {
     return;
   }
 

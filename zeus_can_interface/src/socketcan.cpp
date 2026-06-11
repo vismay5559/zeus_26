@@ -1,6 +1,7 @@
 #include "zeus_can_interface/socketcan.hpp"
-#include <iostream>
+#include <cerrno>
 #include <cstring>
+#include <iostream>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -48,7 +49,18 @@ bool SocketCANTransceiver::open_port(const std::string& interface_name)
         return false;
     }
 
-    // 4. CRITICAL FOR 1 kHz: Set the socket to non-blocking mode.
+    // 4. Enable CAN FD frames so the socket can send/receive canfd_frame at 5 Mbps data phase.
+    // Without this, FD frames from the ODrive are silently dropped by the kernel.
+    int enable_canfd = 1;
+    if (setsockopt(socket_fd_, SOL_CAN_RAW, CAN_RAW_FD_FRAMES, &enable_canfd, sizeof(enable_canfd)) < 0) {
+        std::cerr << "ERROR: CAN_RAW_FD_FRAMES failed on " << interface_name
+                  << ": errno=" << errno << " (" << std::strerror(errno) << ")" << std::endl;
+        close_port();
+        return false;
+    }
+    std::cerr << "[socketcan] CAN FD frames enabled on " << interface_name << std::endl;
+
+    // 5. CRITICAL FOR 1 kHz: Set the socket to non-blocking mode.
     // If the bus is full, the write() command will instantly return instead of freezing the loop.
     int flags = fcntl(socket_fd_, F_GETFL, 0);
     fcntl(socket_fd_, F_SETFL, flags | O_NONBLOCK);
@@ -81,38 +93,58 @@ bool SocketCANTransceiver::send_position_target(uint32_t node_id, float position
 {
     if (!is_open_) return false;
 
+    // TX as classic CAN (1 Mbps). The MCP2518FD SPI driver deadlocks under sustained
+    // CAN-FD 5 Mbps TX on Pi due to SPI interrupt storms from retransmissions.
+    // Classic CAN is identical in content for 8-byte frames; the ODrive accepts it
+    // regardless of CAN-FD mode. RX (ODrive→Pi) still uses CAN-FD via read_frame().
     struct can_frame frame;
-    
-    // ODrive CAN Math: Shift the Node ID left by 5 bits and append the Command ID
-    frame.can_id = (node_id << 5) | ODESC_CMD_SET_INPUT_POS;
-    frame.can_dlc = 8; // We are sending 8 bytes of data
+    std::memset(&frame, 0, sizeof(frame));
+    frame.can_id  = (node_id << 5) | ODESC_CMD_SET_INPUT_POS;
+    frame.can_dlc = 8;
 
-    // The ODESC Set_Input_Pos command expects:
-    // Bytes 0-3: Position (Float32)
-    // Bytes 4-5: Velocity Feedforward (Int16) -> Factor: 0.001
-    // Bytes 6-7: Torque Feedforward (Int16) -> Factor: 0.001
-
-    int16_t vel_int = static_cast<int16_t>(vel_ff * 1000.0f);
+    int16_t vel_int    = static_cast<int16_t>(vel_ff    * 1000.0f);
     int16_t torque_int = static_cast<int16_t>(torque_ff * 1000.0f);
 
     pack_float(position, frame.data, 0);
-    pack_int16(vel_int, frame.data, 4);
+    pack_int16(vel_int,    frame.data, 4);
     pack_int16(torque_int, frame.data, 6);
 
-    // Send the frame over the Linux socket
     int bytes_sent = write(socket_fd_, &frame, sizeof(struct can_frame));
-    
-    return (bytes_sent == sizeof(struct can_frame));
+    if (bytes_sent != static_cast<int>(sizeof(struct can_frame))) {
+        static int err_count = 0;
+        if (++err_count <= 5) {
+            std::cerr << "[socketcan] send_position_target FAILED: bytes_sent=" << bytes_sent
+                      << " errno=" << errno << " (" << std::strerror(errno) << ")"
+                      << " [error " << err_count << " of first 5]" << std::endl;
+        }
+        return false;
+    }
+    return true;
 }
 
-bool SocketCANTransceiver::read_frame(struct can_frame& frame)
+bool SocketCANTransceiver::send_axis_state(uint32_t node_id, uint32_t state)
 {
     if (!is_open_) return false;
 
-    // Because the socket is non-blocking, this instantly returns -1 if no message is waiting.
-    int bytes_read = read(socket_fd_, &frame, sizeof(struct can_frame));
-    
-    return (bytes_read == sizeof(struct can_frame));
+    struct can_frame frame;
+    std::memset(&frame, 0, sizeof(frame));
+    frame.can_id  = (node_id << 5) | ODESC_CMD_SET_AXIS_STATE;
+    frame.can_dlc = 8;
+    std::memcpy(frame.data, &state, sizeof(state));  // uint32_t LE
+
+    int bytes_sent = write(socket_fd_, &frame, sizeof(struct can_frame));
+    return (bytes_sent == sizeof(struct can_frame));
+}
+
+bool SocketCANTransceiver::read_frame(struct canfd_frame& frame)
+{
+    if (!is_open_) return false;
+
+    // Non-blocking: returns -1 immediately if no frame is waiting.
+    // Accepts both classic CAN (CAN_MTU=16) and CAN-FD (CANFD_MTU=72) frames.
+    std::memset(&frame, 0, sizeof(frame));
+    int bytes_read = read(socket_fd_, &frame, sizeof(struct canfd_frame));
+    return (bytes_read == CANFD_MTU || bytes_read == CAN_MTU);
 }
 
 } // namespace zeus_can_interface

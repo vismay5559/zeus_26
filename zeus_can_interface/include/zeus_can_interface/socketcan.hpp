@@ -26,12 +26,17 @@ public:
     bool open_port(const std::string& interface_name);
     void close_port();
 
-    // The 1 kHz target sender. 
-    // Uses the ODESC 'Set_Input_Pos' command which works perfectly with INPUT_MODE_POS_FILTER
+    // The 1 kHz target sender.
+    // Uses the ODESC 'Set_Input_Pos' command which works perfectly with INPUT_MODE_POS_FILTER.
+    // Sends classic CAN frame — ODrive S1 defaults to classic CAN mode.
     bool send_position_target(uint32_t node_id, float position, float vel_ff = 0.0f, float torque_ff = 0.0f);
 
-    // Clears the incoming buffer to read telemetry (Non-blocking)
-    bool read_frame(struct can_frame& frame);
+    // Set axis state (e.g. 8 = CLOSED_LOOP_CONTROL, 1 = IDLE)
+    bool send_axis_state(uint32_t node_id, uint32_t state);
+
+    // Clears the incoming buffer to read telemetry (Non-blocking).
+    // Accepts both classic CAN (CAN_MTU) and CAN-FD (CANFD_MTU) frames.
+    bool read_frame(struct canfd_frame& frame);
 
 private:
     int socket_fd_;

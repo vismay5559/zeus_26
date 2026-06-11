@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+<xacro:macro name="single_joint_test_hardware">
+  <ros2_control name="ZeusSystem" type="system">
+    <hardware>
+      <plugin>zeus_hardware_interface/ZeusSystemHardware</plugin>
+
+      <param name="can0">can_odrive</param>
+      <param name="can1">can_odrive</param>
+
+      <!-- Bypasses SPI encoder reads; after_spring_angle mirrors the command -->
+      <param name="command_only_mode">true</param>
+
+      <!-- SPI params are parsed by on_init even in command_only_mode; keep consistent -->
+      <param name="encoder_spi_device">/dev/spidev3.0</param>
+      <param name="encoder_spi_speed_hz">1000000</param>
+      <param name="encoder_spi_mode">1</param>
+      <param name="num_daisy_encoders">1</param>
+      <param name="encoder_to_joint_map">0</param>
+    </hardware>
+
+    <!--
+      CHANGE node_id to match your ODrive S1's configured CAN node ID.
+      ODrive default is 0. Check with: odrivetool -> odrv0.axis0.config.can.node_id
+    -->
+    <joint name="joint_0">
+      <command_interface name="target_actuator_angle"/>
+      <state_interface name="after_spring_angle"/>
+      <state_interface name="load_encoder_position"/>
+      <state_interface name="torque_estimate"/>
+      <param name="can_bus">can_odrive</param>
+      <param name="node_id">0</param>
+    </joint>
+
+  </ros2_control>
+</xacro:macro>
+
+</robot>
