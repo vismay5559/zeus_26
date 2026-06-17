@@ -314,15 +314,29 @@ hardware_interface::CallbackReturn ZeusSystemHardware::on_cleanup(
 std::vector<hardware_interface::StateInterface> ZeusSystemHardware::export_state_interfaces()
 {
   std::vector<hardware_interface::StateInterface> state_interfaces;
-  state_interfaces.reserve((info_.joints.size() * 3) + sensor_state_indices_.size());
 
+  std::size_t total_joint_si = 0;
+  for (const auto & joint : info_.joints) {
+    total_joint_si += joint.state_interfaces.size();
+  }
+  state_interfaces.reserve(total_joint_si + sensor_state_indices_.size());
+
+  // Export only the state interfaces that are declared in the URDF for each joint.
+  // SEA joints declare after_spring_angle + load_encoder_position + torque_estimate.
+  // QDD joints declare only load_encoder_position + torque_estimate.
   for (std::size_t i = 0; i < info_.joints.size(); ++i) {
-    state_interfaces.emplace_back(
-      info_.joints[i].name, "after_spring_angle", &hw_states_[i]);
-    state_interfaces.emplace_back(
-      info_.joints[i].name, "load_encoder_position", &odrive_load_encoder_positions_[i]);
-    state_interfaces.emplace_back(
-      info_.joints[i].name, "torque_estimate", &odrive_torque_estimates_[i]);
+    for (const auto & si : info_.joints[i].state_interfaces) {
+      if (si.name == "after_spring_angle") {
+        state_interfaces.emplace_back(
+          info_.joints[i].name, "after_spring_angle", &hw_states_[i]);
+      } else if (si.name == "load_encoder_position") {
+        state_interfaces.emplace_back(
+          info_.joints[i].name, "load_encoder_position", &odrive_load_encoder_positions_[i]);
+      } else if (si.name == "torque_estimate") {
+        state_interfaces.emplace_back(
+          info_.joints[i].name, "torque_estimate", &odrive_torque_estimates_[i]);
+      }
+    }
   }
 
   for (const auto & sensor_state : sensor_state_indices_) {

@@ -3,7 +3,8 @@ Zeus Sensor Fusion Node — Contact-Aided InEKF State Estimator.
 
 Fuses:
   • BNO085 IMU data  (orientation, angular velocity, linear acceleration)
-  • AS5048A after-spring encoder angles  (10 joints)
+  • AS5048A after-spring encoder angles  (4 SEA joints: hip_pitch and knee_pitch)
+  • ODrive load_encoder_position         (6 QDD joints: hip_roll, ankle_pitch, waist)
   • 4 mechanical contact switches  (left/right toe & heel, GPIO)
 
 into:
@@ -91,7 +92,10 @@ class SensorFusionNode(Node):
         # ------------------------------------------------------------------
         # Sensor data caches
         # ------------------------------------------------------------------
-        # 10-DOF after-spring encoder angles (joint_0 … joint_9)
+        # Effective joint angles for all 10 joints (radians), used by FK.
+        # SEA joints (0,2,5,7): populated from after_spring_angle (AS5048A, rad).
+        # QDD joints (1,3,4,6,8,9): populated from load_encoder_position × 2π
+        #   (ODrive output-shaft turns converted to rad).
         self._encoder_angles: np.ndarray = np.zeros(10)
         self._encoder_ready: bool = False
 
@@ -244,21 +248,29 @@ class SensorFusionNode(Node):
     # Joint state callback — cache encoder angles
     # ------------------------------------------------------------------
 
+    # SEA joints publish after_spring_angle (radians from AS5048A).
+    # QDD joints only publish load_encoder_position (ODrive turns); multiply by 2π for radians.
+    _SEA_JOINTS = frozenset({'joint_0', 'joint_2', 'joint_5', 'joint_7'})
+    _QDD_JOINTS = frozenset({'joint_1', 'joint_3', 'joint_4', 'joint_6', 'joint_8', 'joint_9'})
+    _JOINT_IDX = {
+        'joint_0': 0, 'joint_1': 1, 'joint_2': 2, 'joint_3': 3,
+        'joint_4': 4, 'joint_5': 5, 'joint_6': 6, 'joint_7': 7,
+        'joint_8': 8, 'joint_9': 9,
+    }
+    _TWO_PI = 2.0 * np.pi
+
     def _joint_state_callback(self, msg: DynamicJointState):
-        # The broadcaster publishes joint_0 … joint_9; map by name.
-        joint_idx_map = {
-            'joint_0': 0, 'joint_1': 1, 'joint_2': 2, 'joint_3': 3,
-            'joint_4': 4, 'joint_5': 5, 'joint_6': 6, 'joint_7': 7,
-            'joint_8': 8, 'joint_9': 9,
-        }
         for name, interface_values in zip(msg.joint_names, msg.interface_values):
-            if name not in joint_idx_map:
+            if name not in self._JOINT_IDX:
                 continue
-            idx = joint_idx_map[name]
+            idx = self._JOINT_IDX[name]
             for iface, val in zip(
                     interface_values.interface_names, interface_values.values):
-                if iface == 'after_spring_angle':
+                if name in self._SEA_JOINTS and iface == 'after_spring_angle':
                     self._encoder_angles[idx] = val
+                elif name in self._QDD_JOINTS and iface == 'load_encoder_position':
+                    # ODrive reports output-shaft position in turns; convert to radians.
+                    self._encoder_angles[idx] = val * self._TWO_PI
 
         self._encoder_ready = True
 

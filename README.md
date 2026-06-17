@@ -13,7 +13,7 @@ a full state estimate that a walking controller can consume.
 | **Compute** | Raspberry Pi 4B, `linux-raspi-realtime` kernel (PREEMPT_RT) |
 | **Actuators** | 10 × ODrive S1 brushless motor drivers, 5 per CAN bus |
 | **CAN-FD HAT** | Waveshare dual-channel CAN-FD HAT (MCP2518FD chip, Mode A) — SPI0 + SPI1 |
-| **After-spring encoders** | 10 × AS5048A 13-bit magnetic encoders, SPI3 daisy-chain on `/dev/spidev3.0` |
+| **After-spring encoders** | 4 × AS5048A 13-bit magnetic encoders, SPI3 daisy-chain on `/dev/spidev3.0` (SEA joints only) |
 | **IMU** | Adafruit BNO085, SHTP protocol over hardware UART `/dev/ttyAMA0` at 3 Mbaud |
 | **Contact switches** | 4 × mechanical switches wired directly to Raspberry Pi GPIO pins |
 | **CAN buses** | 2 × SocketCAN (`can_odrive` / `can1`), CAN-FD at 5 Mbps data rate |
@@ -35,19 +35,22 @@ the Pi. The workaround:
 ### Leg and Joint Mapping
 
 ```
-Joint index │ Actuator          │ CAN bus    │ ODrive node ID
-────────────┼───────────────────┼────────────┼───────────────
-  joint_0   │ left_hip_pitch    │ can_odrive │  1
-  joint_1   │ left_hip_roll     │ can_odrive │  2
-  joint_2   │ left_knee_pitch   │ can_odrive │  3
-  joint_3   │ left_ankle_pitch  │ can_odrive │  4
-  joint_4   │ waist_pitch       │ can_odrive │  5
-  joint_5   │ right_hip_pitch   │ can1       │  1
-  joint_6   │ right_hip_roll    │ can1       │  2
-  joint_7   │ right_knee_pitch  │ can1       │  3
-  joint_8   │ right_ankle_pitch │ can1       │  4
-  joint_9   │ waist_roll        │ can1       │  5
+Joint index │ Actuator          │ CAN bus    │ ODrive node ID │ Type │ Encoder
+────────────┼───────────────────┼────────────┼────────────────┼──────┼──────────────────────
+  joint_0   │ left_hip_pitch    │ can_odrive │  1             │ SEA  │ AS5048A #0 (SPI3)
+  joint_1   │ left_hip_roll     │ can_odrive │  2             │ QDD  │ ODrive only
+  joint_2   │ left_knee_pitch   │ can_odrive │  3             │ SEA  │ AS5048A #1 (SPI3)
+  joint_3   │ left_ankle_pitch  │ can_odrive │  4             │ QDD  │ ODrive only
+  joint_4   │ waist_pitch       │ can_odrive │  5             │ QDD  │ ODrive only
+  joint_5   │ right_hip_pitch   │ can1       │  1             │ SEA  │ AS5048A #2 (SPI3)
+  joint_6   │ right_hip_roll    │ can1       │  2             │ QDD  │ ODrive only
+  joint_7   │ right_knee_pitch  │ can1       │  3             │ SEA  │ AS5048A #3 (SPI3)
+  joint_8   │ right_ankle_pitch │ can1       │  4             │ QDD  │ ODrive only
+  joint_9   │ waist_roll        │ can1       │  5             │ QDD  │ ODrive only
 ```
+
+SEA = Series Elastic Actuator — spring deflection measured by AS5048A gives `after_spring_angle`.
+QDD = Quasi Direct Drive — no spring; output angle equals gearbox output reported by ODrive (`load_encoder_position × 2π rad`).
 
 ### CAN Interface Naming
 
@@ -105,7 +108,7 @@ ROS 2 control vocabulary:
 
 ---
 
-## Interface Count: 44 state + 10 command
+## Interface Count: 38 state + 10 command
 
 ### Command Interfaces (10)
 
@@ -116,17 +119,22 @@ joint_1/target_actuator_angle
 joint_9/target_actuator_angle
 ```
 
-### State Interfaces (44)
+### State Interfaces (38)
 
 ```
-After-spring encoder angle (10):
-  joint_0/after_spring_angle … joint_9/after_spring_angle
+SEA joints — after_spring_angle + load_encoder_position + torque_estimate (4 joints × 3 = 12):
+  joint_0/after_spring_angle   joint_0/load_encoder_position   joint_0/torque_estimate
+  joint_2/after_spring_angle   joint_2/load_encoder_position   joint_2/torque_estimate
+  joint_5/after_spring_angle   joint_5/load_encoder_position   joint_5/torque_estimate
+  joint_7/after_spring_angle   joint_7/load_encoder_position   joint_7/torque_estimate
 
-ODrive load encoder position (10):
-  joint_0/load_encoder_position … joint_9/load_encoder_position
-
-ODrive torque estimate (10):
-  joint_0/torque_estimate … joint_9/torque_estimate
+QDD joints — load_encoder_position + torque_estimate only (6 joints × 2 = 12):
+  joint_1/load_encoder_position   joint_1/torque_estimate
+  joint_3/load_encoder_position   joint_3/torque_estimate
+  joint_4/load_encoder_position   joint_4/torque_estimate
+  joint_6/load_encoder_position   joint_6/torque_estimate
+  joint_8/load_encoder_position   joint_8/torque_estimate
+  joint_9/load_encoder_position   joint_9/torque_estimate
 
 IMU (10):
   imu/orientation.x   imu/orientation.y   imu/orientation.z   imu/orientation.w
@@ -145,7 +153,7 @@ Mechanical contact switches (4):
 ```
 controller_manager loop:    1000 Hz   (FIFO-50 RT thread, PREEMPT_RT kernel required)
 Actuator CAN commands:      1000 Hz   (classic CAN 1 Mbps TX; ODrive configured to broadcast at 1 kHz)
-AS5048A encoder reads:      1000 Hz   (SPI3 burst, 20 bytes per cycle)
+AS5048A encoder reads:      1000 Hz   (SPI3 burst, 8 bytes per cycle — 4 SEA joints)
 GPIO contact switch reads:  1000 Hz   (pre-opened sysfs fd — no open() overhead)
 ODrive CAN telemetry RX:    1000 Hz   (CAN-FD 5 Mbps from ODrive → Pi)
 BNO085 IMU UART stream:      400 Hz   (3 Mbaud, FIFO-buffered, no clock stretching)
@@ -209,7 +217,7 @@ Key files:
 | `on_init()` | Reads xacro hardware params; allocates all state/command arrays (commands initialised to NaN); detects sensor elements from URDF |
 | `on_configure()` | Opens CAN sockets, encoder SPI, IMU UART; exports GPIO pins via sysfs and pre-opens value file descriptors |
 | `on_activate()` | Marks hardware ready |
-| `read()` | 1. Reads AS5048A encoders → `after_spring_angle`. 2. Drains ODrive CAN frames → `load_encoder_position`, `torque_estimate`. 3. Reads BNO085 SHTP packets → IMU states. 4. Reads GPIO switches → `contact` states |
+| `read()` | 1. Reads 4 AS5048A encoders (SEA joints) → `after_spring_angle`. 2. Drains ODrive CAN frames → `load_encoder_position`, `torque_estimate` (all joints). 3. Reads BNO085 SHTP packets → IMU states. 4. Reads GPIO switches → `contact` states |
 | `write()` | For each joint: passes `hw_commands_[i]` **directly** to `send_position_target()` with velocity feedforward computed as `(cmd[n] - cmd[n-1]) × 1000 Hz`. No smoothing filter — the upstream commander already delivers a smooth 1 kHz interpolated stream. Skips joints where `hw_commands_[i]` is NaN (controller not yet active). |
 | `on_deactivate()` | Stops issuing commands |
 | `on_cleanup()` | Closes all fds; unexports GPIO pins; closes SPI/CAN sockets |
@@ -220,12 +228,16 @@ Key files:
 
 #### AS5048A Encoder Chain
 
-10 encoders daisy-chained on **SPI3** (`/dev/spidev3.0`). SPI3 is used because the CAN-FD HAT
-in Mode A physically owns SPI0 (can_odrive) and SPI1 (can1) for its CAN links.
+4 encoders daisy-chained on **SPI3** (`/dev/spidev3.0`), covering the 4 SEA joints only
+(left/right hip_pitch and knee_pitch). SPI3 is used because the CAN-FD HAT in Mode A
+physically owns SPI0 (can_odrive) and SPI1 (can1) for its CAN links.
 SPI3 must be enabled by adding `dtoverlay=spi3-1cs` to `/boot/firmware/config.txt`.
 
-Each encoder returns a 13-bit angle (0–8191 counts = 0–2π radians). The driver reads all 10
-in one 20-byte SPI burst, applies parity checking, and runs a small first-order low-pass
+QDD joints (hip_roll, ankle_pitch, waist) have no spring and therefore no AS5048A encoder;
+their output angle is read directly from the ODrive via CAN (`load_encoder_position`, turns).
+
+Each encoder returns a 13-bit angle (0–8191 counts = 0–2π radians). The driver reads all 4
+in one 8-byte SPI burst, applies parity checking, and runs a small first-order low-pass
 filter (α = 0.2) to reduce noise.
 
 SPI3 wiring:
@@ -623,7 +635,7 @@ ros2 launch zeus_sensor_fusion sensor_fusion.launch.py
 ### 4. Check everything started correctly
 
 ```bash
-ros2 control list_hardware_interfaces    # expect 44 state + 10 command
+ros2 control list_hardware_interfaces    # expect 38 state + 10 command
 ros2 control list_controllers
 ros2 topic echo /zeus/estimated_height
 ros2 topic echo /dynamic_joint_states
@@ -708,7 +720,7 @@ ls /dev/spidev3.0    # requires dtoverlay=spi3-1cs in /boot/firmware/config.txt
 │  SPI0 (GPIO8/9/10/11) ──► CAN-FD HAT ──► can_odrive (CAN-FD)  │
 │  SPI1 (GPIO18/19/20/21)─► CAN-FD HAT ──► can1      (CAN-FD)   │
 │                                                                 │
-│  SPI3 (GPIO0/1/2/3)   ──► AS5048A daisy-chain (10 encoders)   │
+│  SPI3 (GPIO0/1/2/3)   ──► AS5048A daisy-chain (4 SEA encoders) │
 │                              /dev/spidev3.0                     │
 │                                                                 │
 │  UART0 GPIO14 (TX) ────────► BNO085 RX                         │

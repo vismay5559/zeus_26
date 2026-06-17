@@ -15,10 +15,13 @@
       <param name="encoder_spi_device">/dev/spidev3.0</param>
       <param name="encoder_spi_speed_hz">1000000</param>
       <param name="encoder_spi_mode">1</param>
-      <param name="num_daisy_encoders">10</param>
+      <param name="num_daisy_encoders">4</param>
 
-      <!-- Encoder to Joint Mapping (position 0-9 maps to joint 0-9) -->
-      <param name="encoder_to_joint_map">0,1,2,3,4,5,6,7,8,9</param>
+      <!-- Encoder to Joint Mapping: only the 4 SEA joints carry AS5048A encoders.
+           SEA joints: joint_0 (left_hip_pitch), joint_2 (left_knee_pitch),
+                       joint_5 (right_hip_pitch), joint_7 (right_knee_pitch).
+           QDD joints (ankle, hip_roll, waist) use ODrive load_encoder_position only. -->
+      <param name="encoder_to_joint_map">0,2,5,7</param>
 
       <!-- BNO085 IMU UART Configuration
            Hardware UART on GPIO14 (TX, Pin 8) / GPIO15 (RX, Pin 10) → /dev/ttyAMA0.
@@ -32,16 +35,21 @@
     </hardware>
 
       <!-- Joint Definitions
-           joint_0  = left_hip_pitch    (can0, node 1)
-           joint_1  = left_hip_roll     (can0, node 2)
-           joint_2  = left_knee_pitch   (can0, node 3)
-           joint_3  = left_ankle_pitch  (can0, node 4)
-           joint_4  = waist_pitch       (can0, node 5)
-           joint_5  = right_hip_pitch   (can1, node 1)
-           joint_6  = right_hip_roll    (can1, node 2)
-           joint_7  = right_knee_pitch  (can1, node 3)
-           joint_8  = right_ankle_pitch (can1, node 4)
-           joint_9  = waist_roll        (can1, node 5)
+           Actuator type determines available state interfaces:
+             SEA (Series Elastic Actuator) → after_spring_angle + load_encoder_position + torque_estimate
+             QDD (Quasi Direct Drive)      → load_encoder_position + torque_estimate only
+                                             (output angle = gearbox output, read from ODrive)
+
+           joint_0  = left_hip_pitch    (can0, node 1)  SEA — AS5048A encoder #0
+           joint_1  = left_hip_roll     (can0, node 2)  QDD
+           joint_2  = left_knee_pitch   (can0, node 3)  SEA — AS5048A encoder #1
+           joint_3  = left_ankle_pitch  (can0, node 4)  QDD
+           joint_4  = waist_pitch       (can0, node 5)  QDD
+           joint_5  = right_hip_pitch   (can1, node 1)  SEA — AS5048A encoder #2
+           joint_6  = right_hip_roll    (can1, node 2)  QDD
+           joint_7  = right_knee_pitch  (can1, node 3)  SEA — AS5048A encoder #3
+           joint_8  = right_ankle_pitch (can1, node 4)  QDD
+           joint_9  = waist_roll        (can1, node 5)  QDD
       -->
       <joint name="joint_0">
         <command_interface name="target_actuator_angle"/>
@@ -54,7 +62,6 @@
 
       <joint name="joint_1">
         <command_interface name="target_actuator_angle"/>
-        <state_interface name="after_spring_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
         <param name="can_bus">can0</param>
@@ -72,7 +79,6 @@
 
       <joint name="joint_3">
         <command_interface name="target_actuator_angle"/>
-        <state_interface name="after_spring_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
         <param name="can_bus">can0</param>
@@ -81,7 +87,6 @@
 
       <joint name="joint_4">
         <command_interface name="target_actuator_angle"/>
-        <state_interface name="after_spring_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
         <param name="can_bus">can0</param>
@@ -99,7 +104,6 @@
 
       <joint name="joint_6">
         <command_interface name="target_actuator_angle"/>
-        <state_interface name="after_spring_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
         <param name="can_bus">can1</param>
@@ -117,7 +121,6 @@
 
       <joint name="joint_8">
         <command_interface name="target_actuator_angle"/>
-        <state_interface name="after_spring_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
         <param name="can_bus">can1</param>
@@ -126,7 +129,6 @@
 
       <joint name="joint_9">
         <command_interface name="target_actuator_angle"/>
-        <state_interface name="after_spring_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
         <param name="can_bus">can1</param>

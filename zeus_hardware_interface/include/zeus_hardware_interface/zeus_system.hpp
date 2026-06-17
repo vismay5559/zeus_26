@@ -99,7 +99,7 @@ private:
   uint32_t encoder_spi_speed_hz_ = 1000000;
   uint8_t encoder_spi_mode_ = 1;
   uint8_t encoder_spi_bits_per_word_ = 8;
-  std::size_t num_daisy_encoders_ = 10;
+  std::size_t num_daisy_encoders_ = 4;   // 4 SEA joints: left/right hip_pitch and knee_pitch
   std::vector<std::size_t> encoder_joint_map_;
 
   static constexpr double LOW_PASS_ALPHA = 0.2;

@@ -158,7 +158,7 @@ class HardcodedActuatorTestNode(Node):
             f'           torque_est     = {self._torque_estimate:+.4f} Nm    '
             f'(from ODrive Get_Torques)\n'
             f'           after_spring   = {self._after_spring:+.4f} rad  '
-            f'(always nan in command_only_mode)'
+            f'(nan for QDD joints or in command_only_mode)'
         )
 
 

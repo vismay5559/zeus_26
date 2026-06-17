@@ -33,7 +33,9 @@ joint_state_broadcaster:
       - joint_7
       - joint_8
       - joint_9
-    # Custom SEA state interfaces from ODrive S1 + AS5048A encoders
+    # SEA joints (hip_pitch, knee_pitch) export after_spring_angle + load_encoder_position + torque_estimate.
+    # QDD joints (hip_roll, ankle_pitch, waist) export only load_encoder_position + torque_estimate.
+    # JointStateBroadcaster silently skips after_spring_angle for joints that do not declare it.
     interfaces:
       - after_spring_angle
       - load_encoder_position

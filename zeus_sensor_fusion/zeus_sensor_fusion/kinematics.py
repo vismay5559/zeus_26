@@ -2,16 +2,16 @@
 Zeus bipedal robot forward kinematics.
 
 Joint mapping (symmetric legs, confirmed hardware layout):
-    joint_0  = left_hip_pitch   (can0, node 1)
-    joint_1  = left_hip_roll    (can0, node 2)
-    joint_2  = left_knee_pitch  (can0, node 3)
-    joint_3  = left_ankle_pitch (can0, node 4)
-    joint_4  = waist_pitch      (can0, node 5)  — NOT used in foot FK
-    joint_5  = right_hip_pitch  (can1, node 1)
-    joint_6  = right_hip_roll   (can1, node 2)
-    joint_7  = right_knee_pitch (can1, node 3)
-    joint_8  = right_ankle_pitch(can1, node 4)
-    joint_9  = waist_roll       (can1, node 5)  — NOT used in foot FK
+    joint_0  = left_hip_pitch   (can0, node 1)  SEA — angle from AS5048A (rad)
+    joint_1  = left_hip_roll    (can0, node 2)  QDD — angle from ODrive turns × 2π
+    joint_2  = left_knee_pitch  (can0, node 3)  SEA — angle from AS5048A (rad)
+    joint_3  = left_ankle_pitch (can0, node 4)  QDD — angle from ODrive turns × 2π
+    joint_4  = waist_pitch      (can0, node 5)  QDD — NOT used in foot FK
+    joint_5  = right_hip_pitch  (can1, node 1)  SEA — angle from AS5048A (rad)
+    joint_6  = right_hip_roll   (can1, node 2)  QDD — angle from ODrive turns × 2π
+    joint_7  = right_knee_pitch (can1, node 3)  SEA — angle from AS5048A (rad)
+    joint_8  = right_ankle_pitch(can1, node 4)  QDD — angle from ODrive turns × 2π
+    joint_9  = waist_roll       (can1, node 5)  QDD — NOT used in foot FK
 
 The IMU is located in the lower torso (base_link / body frame).
 Waist joints connect the lower torso to the upper body and therefore do NOT
@@ -157,7 +157,9 @@ def fk_left_foot(
 
     Parameters
     ----------
-    q_all   Full 10-DOF joint angle vector (after-spring encoders, radians).
+    q_all   Full 10-DOF joint angle vector (radians).
+            SEA joints [0,2,5,7]: sourced from AS5048A after_spring_angle.
+            QDD joints [1,3,4,6,8,9]: sourced from ODrive load_encoder_position × 2π.
             Index mapping: [0]=L_hip_pitch, [1]=L_hip_roll, [2]=L_knee_pitch,
                            [3]=L_ankle_pitch, [4]=waist_pitch, [5]=R_hip_pitch,
                            [6]=R_hip_roll, [7]=R_knee_pitch, [8]=R_ankle_pitch,
@@ -189,7 +191,8 @@ def fk_right_foot(
 
     Parameters
     ----------
-    q_all   Full 10-DOF joint angle vector (after-spring encoders, radians).
+    q_all   Full 10-DOF joint angle vector (radians).
+            SEA joints [0,2,5,7]: from AS5048A; QDD joints [1,3,4,6,8,9]: from ODrive × 2π.
     params  Link length parameters.
 
     Returns
