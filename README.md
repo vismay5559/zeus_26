@@ -108,7 +108,7 @@ ROS 2 control vocabulary:
 
 ---
 
-## Interface Count: 38 state + 10 command
+## Interface Count: 48 state + 10 command
 
 ### Command Interfaces (10)
 
@@ -119,22 +119,22 @@ joint_1/target_actuator_angle
 joint_9/target_actuator_angle
 ```
 
-### State Interfaces (38)
+### State Interfaces (48)
 
 ```
-SEA joints — after_spring_angle + load_encoder_position + torque_estimate (4 joints × 3 = 12):
-  joint_0/after_spring_angle   joint_0/load_encoder_position   joint_0/torque_estimate
-  joint_2/after_spring_angle   joint_2/load_encoder_position   joint_2/torque_estimate
-  joint_5/after_spring_angle   joint_5/load_encoder_position   joint_5/torque_estimate
-  joint_7/after_spring_angle   joint_7/load_encoder_position   joint_7/torque_estimate
+SEA joints — after_spring_angle + load_encoder_position + torque_estimate + actuator_fault (4 joints × 4 = 16):
+  joint_0/after_spring_angle   joint_0/load_encoder_position   joint_0/torque_estimate   joint_0/actuator_fault
+  joint_2/after_spring_angle   joint_2/load_encoder_position   joint_2/torque_estimate   joint_2/actuator_fault
+  joint_5/after_spring_angle   joint_5/load_encoder_position   joint_5/torque_estimate   joint_5/actuator_fault
+  joint_7/after_spring_angle   joint_7/load_encoder_position   joint_7/torque_estimate   joint_7/actuator_fault
 
-QDD joints — load_encoder_position + torque_estimate only (6 joints × 2 = 12):
-  joint_1/load_encoder_position   joint_1/torque_estimate
-  joint_3/load_encoder_position   joint_3/torque_estimate
-  joint_4/load_encoder_position   joint_4/torque_estimate
-  joint_6/load_encoder_position   joint_6/torque_estimate
-  joint_8/load_encoder_position   joint_8/torque_estimate
-  joint_9/load_encoder_position   joint_9/torque_estimate
+QDD joints — load_encoder_position + torque_estimate + actuator_fault only (6 joints × 3 = 18):
+  joint_1/load_encoder_position   joint_1/torque_estimate   joint_1/actuator_fault
+  joint_3/load_encoder_position   joint_3/torque_estimate   joint_3/actuator_fault
+  joint_4/load_encoder_position   joint_4/torque_estimate   joint_4/actuator_fault
+  joint_6/load_encoder_position   joint_6/torque_estimate   joint_6/actuator_fault
+  joint_8/load_encoder_position   joint_8/torque_estimate   joint_8/actuator_fault
+  joint_9/load_encoder_position   joint_9/torque_estimate   joint_9/actuator_fault
 
 IMU (10):
   imu/orientation.x   imu/orientation.y   imu/orientation.z   imu/orientation.w
@@ -147,6 +147,9 @@ Mechanical contact switches (4):
   right_toe_switch/contact
   right_heel_switch/contact
 ```
+
+`actuator_fault` is a reason bitmask (0.0 = healthy) from the heartbeat + CAN staleness watchdog —
+see [Actuator Fault Detection](#actuator-fault-detection--heartbeat--can-staleness-watchdog) below.
 
 ### Target Update Rates
 
@@ -216,9 +219,9 @@ Key files:
 |-------|-------------|
 | `on_init()` | Reads xacro hardware params; allocates all state/command arrays (commands initialised to NaN); detects sensor elements from URDF |
 | `on_configure()` | Opens CAN sockets, encoder SPI, IMU UART; exports GPIO pins via sysfs and pre-opens value file descriptors |
-| `on_activate()` | Marks hardware ready |
-| `read()` | 1. Reads 4 AS5048A encoders (SEA joints) → `after_spring_angle`. 2. Drains ODrive CAN frames → `load_encoder_position`, `torque_estimate` (all joints). 3. Reads BNO085 SHTP packets → IMU states. 4. Reads GPIO switches → `contact` states |
-| `write()` | For each joint: passes `hw_commands_[i]` **directly** to `send_position_target()` with velocity feedforward computed as `(cmd[n] - cmd[n-1]) × 1000 Hz`. No smoothing filter — the upstream commander already delivers a smooth 1 kHz interpolated stream. Skips joints where `hw_commands_[i]` is NaN (controller not yet active). |
+| `on_activate()` | Marks hardware ready; calls `reset_actuator_fault_state()` — clears the global estop latch and all per-joint fault bookkeeping from any previous run |
+| `read()` | 1. Reads 4 AS5048A encoders (SEA joints) → `after_spring_angle`. 2. Drains ODrive CAN frames → `load_encoder_position`, `torque_estimate`, and `Get_Heartbeat` → `axis_error`/`axis_state` (all joints). 3. Reads BNO085 SHTP packets → IMU states. 4. Reads GPIO switches → `contact` states. 5. `check_actuator_faults()` — recomputes each joint's `actuator_fault` bitmask from heartbeat/telemetry staleness, ODrive axis_error, and CAN TX failures; latches a whole-robot estop if any joint just faulted |
+| `write()` | If the global estop is latched, sends nothing and returns immediately. Otherwise, for each non-gated joint: passes `hw_commands_[i]` **directly** to `send_position_target()` with velocity feedforward computed as `(cmd[n] - cmd[n-1]) × 1000 Hz`. No smoothing filter — the upstream commander already delivers a smooth 1 kHz interpolated stream. Skips joints where `hw_commands_[i]` is NaN (controller not yet active) or where `check_actuator_faults()` gated that joint's commands. |
 | `on_deactivate()` | Stops issuing commands |
 | `on_cleanup()` | Closes all fds; unexports GPIO pins; closes SPI/CAN sockets |
 
@@ -686,7 +689,7 @@ ros2 launch zeus_sensor_fusion sensor_fusion.launch.py
 ### 4. Check everything started correctly
 
 ```bash
-ros2 control list_hardware_interfaces    # expect 38 state + 10 command
+ros2 control list_hardware_interfaces    # expect 48 state + 10 command
 ros2 control list_controllers
 ros2 topic echo /zeus/estimated_height
 ros2 topic echo /dynamic_joint_states
