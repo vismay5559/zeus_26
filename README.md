@@ -560,6 +560,57 @@ odrv0.axis0.controller.config.vel_integrator_gain = 0.1
 odrv0.save_configuration()
 ```
 
+### Actuator Fault Detection — Heartbeat + CAN Staleness Watchdog
+
+`zeus_hardware_interface` decodes each ODrive's `Get_Heartbeat` (`0x001`) CAN broadcast and tracks
+the age of the last `Get_Encoder_Estimates` (`0x009`) / `Get_Torques` (`0x01C`) frame per joint.
+This is in addition to (not a replacement for) each ODrive's own 3 ms CAN watchdog.
+
+**Required ODrive config** (set once per axis via `odrivetool`, alongside the existing
+watchdog/brake-resistor config):
+
+```python
+odrv0.axis0.config.can.heartbeat_rate_ms = 10   # default is 100 ms — too slow to catch a fault quickly
+odrv0.save_configuration()
+```
+
+**New state interface per joint:** `actuator_fault` — a reason bitmask, not a plain 0/1 flag.
+`0.0` means healthy; a nonzero value tells you exactly which condition(s) tripped:
+
+| Bit | Value | Meaning |
+|---|---|---|
+| `kFaultBitHeartbeatStale` | `0x1` | No `Get_Heartbeat` frame in >30 ms (3 missed at the required 10 ms rate) |
+| `kFaultBitTelemetryStale` | `0x2` | No `Get_Encoder_Estimates`/`Get_Torques` frame in >5 ms (5 missed at the nominal 1 kHz broadcast) |
+| `kFaultBitAxisError` | `0x4` | The ODrive's own `Axis_Error` (from its Heartbeat) is nonzero — the raw ODrive error code itself is only in the log line below, not on the topic |
+| `kFaultBitTxFailure` | `0x8` | 3+ consecutive failed CAN sends to this joint |
+
+Bits are OR'd together, so e.g. `actuator_fault == 5` (`0x1 | 0x4`) means both a stale heartbeat and
+an active ODrive axis error. The full ODrive error code and a human-readable breakdown of which
+bits fired are printed via `RCLCPP_WARN` the moment a joint transitions into fault — check the
+`ros2_control_node` console/log for the exact ODrive error value.
+
+**Whole-robot full stop:** the instant *any* joint reports a nonzero `actuator_fault` (for any
+reason, including a TX-failure-only fault), `write()` withholds position commands from **every**
+joint, not just the faulted one — a full stop, not just a one-joint freeze. This is a hard latch:
+it does **not** auto-clear when the underlying condition clears, on purpose — a fault serious
+enough to trip a full stop should not silently resume unsupervised. The only way to clear it is
+to re-activate the hardware component (`reset_actuator_fault_state()`, called from
+`on_activate()`), i.e. an explicit operator-driven restart, which also resets every joint's
+fault bookkeeping to a clean slate.
+
+This is a deliberately conservative placeholder: with no RL policy loaded yet and no leg
+kinematics in the URDF, "stop everything" is the safest default. Once the RL policy and full
+URDF are in place, this is the place to revisit for a more tiered response (e.g. controlled
+crouch before cutting power, or reacting differently depending on stance vs. swing leg).
+
+**Behavior on fault:** `write()` stops sending new `Set_Input_Pos` commands to that joint only —
+it does not send an explicit IDLE/estop. This lets the ODrive's own 3 ms watchdog (already
+configured, see below) govern the axis instead of racing it with a second, independently-tuned
+reaction. TX failures are tracked but never gate sending, since the send attempt itself is what
+lets a transient failure clear — gating on it would permanently latch the fault. A joint recovers
+automatically (resumes taking commands) once fresh heartbeat/telemetry frames resume and
+`axis_error` reads back 0.
+
 ### Step-by-step: bring up and run
 
 ```bash

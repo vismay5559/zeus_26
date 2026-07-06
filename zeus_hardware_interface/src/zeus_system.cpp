@@ -104,6 +104,18 @@ hardware_interface::CallbackReturn ZeusSystemHardware::on_init(
   prev_hw_commands_.assign(joint_count, std::numeric_limits<double>::quiet_NaN());
   spi_positions_buffer_.assign(joint_count, 0.0);
 
+  odrive_axis_error_.assign(joint_count, 0.0);
+  odrive_axis_state_.assign(joint_count, 0.0);
+  joint_fault_states_.assign(joint_count, 0.0);
+  joint_command_gated_.assign(joint_count, false);
+  tx_consecutive_failures_.assign(joint_count, 0);
+  // Seed RX clocks to "now" so a joint isn't reported stale before its first CAN frame
+  // has any chance to arrive (on_activate/ODrive arming takes longer than the timeouts).
+  const auto init_time = std::chrono::steady_clock::now();
+  last_heartbeat_rx_.assign(joint_count, init_time);
+  last_encoder_rx_.assign(joint_count, init_time);
+  last_torque_rx_.assign(joint_count, init_time);
+
   // Pre-allocate zero-copy SPI buffers (0xFF triggers angle read)
   spi_tx_buffer_.assign(num_daisy_encoders_ * 2, 0xFF);
   spi_rx_buffer_.assign(num_daisy_encoders_ * 2, 0x00);
@@ -335,6 +347,9 @@ std::vector<hardware_interface::StateInterface> ZeusSystemHardware::export_state
       } else if (si.name == "torque_estimate") {
         state_interfaces.emplace_back(
           info_.joints[i].name, "torque_estimate", &odrive_torque_estimates_[i]);
+      } else if (si.name == "actuator_fault") {
+        state_interfaces.emplace_back(
+          info_.joints[i].name, "actuator_fault", &joint_fault_states_[i]);
       }
     }
   }
@@ -366,6 +381,7 @@ hardware_interface::CallbackReturn ZeusSystemHardware::on_activate(
 {
   if (encoder_spi_fd_ < 0) {
     if (command_only_mode_) {
+      reset_actuator_fault_state();
       RCLCPP_INFO(rclcpp::get_logger("ZeusSystemHardware"), "Hardware activated in command-only mode");
       return hardware_interface::CallbackReturn::SUCCESS;
     }
@@ -374,8 +390,26 @@ hardware_interface::CallbackReturn ZeusSystemHardware::on_activate(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
+  reset_actuator_fault_state();
   RCLCPP_INFO(rclcpp::get_logger("ZeusSystemHardware"), "Hardware activated");
   return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+void ZeusSystemHardware::reset_actuator_fault_state()
+{
+  // Fresh slate on every activation: an operator re-activating the hardware component
+  // is the deliberate "I've dealt with it, re-arm" action that clears the global estop
+  // latch and any per-joint fault bookkeeping left over from a previous run.
+  global_estop_latched_ = false;
+  const auto now = std::chrono::steady_clock::now();
+  std::fill(last_heartbeat_rx_.begin(), last_heartbeat_rx_.end(), now);
+  std::fill(last_encoder_rx_.begin(), last_encoder_rx_.end(), now);
+  std::fill(last_torque_rx_.begin(), last_torque_rx_.end(), now);
+  std::fill(tx_consecutive_failures_.begin(), tx_consecutive_failures_.end(), 0u);
+  std::fill(joint_fault_states_.begin(), joint_fault_states_.end(), 0.0);
+  std::fill(joint_command_gated_.begin(), joint_command_gated_.end(), false);
+  std::fill(odrive_axis_error_.begin(), odrive_axis_error_.end(), 0.0);
+  std::fill(odrive_axis_state_.begin(), odrive_axis_state_.end(), 0.0);
 }
 
 hardware_interface::CallbackReturn ZeusSystemHardware::on_deactivate(
@@ -398,6 +432,7 @@ hardware_interface::return_type ZeusSystemHardware::read(
         hw_states_[i] = hw_commands_[i];
       }
     }
+    check_actuator_faults();
     return hardware_interface::return_type::OK;
   }
 
@@ -422,15 +457,28 @@ hardware_interface::return_type ZeusSystemHardware::read(
     read_gpio_switches();
   }
 
+  check_actuator_faults();
+
   return hardware_interface::return_type::OK;
 }
 
 hardware_interface::return_type ZeusSystemHardware::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
+  if (global_estop_latched_) {
+    // At least one joint has faulted since the hardware was last activated. Withhold
+    // position commands from every joint — see check_actuator_faults() for the trigger
+    // and reset_actuator_fault_state() for how this clears (re-activation only).
+    return hardware_interface::return_type::OK;
+  }
+
   for (std::size_t i = 0; i < info_.joints.size(); ++i) {
     if (std::isnan(hw_commands_[i])) {
       continue;  // forward_command_controller publishes NaN until the first command arrives
+    }
+
+    if (joint_command_gated_[i]) {
+      continue;  // stale heartbeat/telemetry or an active ODrive axis_error — see check_actuator_faults()
     }
 
     // The commander already linearly interpolates the 22 Hz gait waypoints to a
@@ -447,7 +495,9 @@ hardware_interface::return_type ZeusSystemHardware::write(
     auto & can_driver = use_can0_for_joint(i) ? can0_driver_ : can1_driver_;
     const uint32_t node_id = node_id_for_joint(i);
 
-    can_driver.send_position_target(node_id, static_cast<float>(hw_commands_[i]), vel_ff);
+    const bool sent = can_driver.send_position_target(
+      node_id, static_cast<float>(hw_commands_[i]), vel_ff);
+    tx_consecutive_failures_[i] = sent ? 0 : (tx_consecutive_failures_[i] + 1);
   }
 
   return hardware_interface::return_type::OK;
@@ -537,10 +587,87 @@ void ZeusSystemHardware::handle_odrive_can_frame(const struct canfd_frame & fram
     return;
   }
 
+  const auto now = std::chrono::steady_clock::now();
+
   if (command_id == zeus_can_interface::ODESC_CMD_GET_ENCODER_ESTIMATES) {
     odrive_load_encoder_positions_[joint_index] = read_float32_le(&frame.data[0]);
+    last_encoder_rx_[joint_index] = now;
   } else if (command_id == zeus_can_interface::ODESC_CMD_GET_TORQUES) {
     odrive_torque_estimates_[joint_index] = read_float32_le(&frame.data[4]);
+    last_torque_rx_[joint_index] = now;
+  } else if (command_id == zeus_can_interface::ODESC_CMD_HEARTBEAT) {
+    handle_heartbeat_frame(joint_index, frame);
+    last_heartbeat_rx_[joint_index] = now;
+  }
+}
+
+void ZeusSystemHardware::handle_heartbeat_frame(
+  std::size_t joint_index, const struct canfd_frame & frame)
+{
+  // ODrive CANSimple Get_Heartbeat payload: bytes 0-3 = Axis_Error (uint32 LE),
+  // byte 4 = Axis_State, byte 5 = Procedure_result, byte 6 = Trajectory_done_flag.
+  uint32_t axis_error = 0;
+  std::memcpy(&axis_error, &frame.data[0], sizeof(axis_error));
+  odrive_axis_error_[joint_index] = static_cast<double>(axis_error);
+  odrive_axis_state_[joint_index] = static_cast<double>(frame.data[4]);
+}
+
+void ZeusSystemHardware::check_actuator_faults()
+{
+  const auto now = std::chrono::steady_clock::now();
+
+  for (std::size_t i = 0; i < info_.joints.size(); ++i) {
+    const double heartbeat_age_ms =
+      std::chrono::duration<double, std::milli>(now - last_heartbeat_rx_[i]).count();
+    const double encoder_age_ms =
+      std::chrono::duration<double, std::milli>(now - last_encoder_rx_[i]).count();
+    const double torque_age_ms =
+      std::chrono::duration<double, std::milli>(now - last_torque_rx_[i]).count();
+
+    const bool heartbeat_stale = heartbeat_age_ms > kHeartbeatTimeoutMs;
+    const bool telemetry_stale = encoder_age_ms > kCanRxTimeoutMs || torque_age_ms > kCanRxTimeoutMs;
+    const bool axis_error_active = odrive_axis_error_[i] != 0.0;
+    const bool tx_fault = tx_consecutive_failures_[i] >= kTxFailThreshold;
+
+    uint32_t reason_mask = 0;
+    if (heartbeat_stale) reason_mask |= kFaultBitHeartbeatStale;
+    if (telemetry_stale) reason_mask |= kFaultBitTelemetryStale;
+    if (axis_error_active) reason_mask |= kFaultBitAxisError;
+    if (tx_fault) reason_mask |= kFaultBitTxFailure;
+
+    // Only RX-driven conditions gate outgoing commands. Gating on tx_fault too would be
+    // self-latching: write() would stop calling send_position_target(), so
+    // tx_consecutive_failures_ could never reset and the joint would never recover.
+    // Leaving TX ungated means a transient failure clears itself on the next good send.
+    const bool gate_commands = heartbeat_stale || telemetry_stale || axis_error_active;
+    const bool faulted = reason_mask != 0;
+    const bool was_faulted = joint_fault_states_[i] != 0.0;
+
+    if (faulted && !was_faulted) {
+      RCLCPP_WARN(
+        rclcpp::get_logger("ZeusSystemHardware"),
+        "Joint '%s' FAULTED [reason_mask=0x%X: heartbeat_stale=%d telemetry_stale=%d"
+        " axis_error=0x%X tx_fail_count=%u] — withholding new position commands;"
+        " ODrive's own CAN watchdog now governs this axis.",
+        info_.joints[i].name.c_str(), reason_mask, heartbeat_stale, telemetry_stale,
+        static_cast<uint32_t>(odrive_axis_error_[i]), tx_consecutive_failures_[i]);
+    } else if (!faulted && was_faulted) {
+      RCLCPP_INFO(
+        rclcpp::get_logger("ZeusSystemHardware"),
+        "Joint '%s' fault cleared — resuming position commands.", info_.joints[i].name.c_str());
+    }
+
+    joint_fault_states_[i] = static_cast<double>(reason_mask);
+    joint_command_gated_[i] = gate_commands;
+
+    if (faulted && !global_estop_latched_) {
+      global_estop_latched_ = true;
+      RCLCPP_ERROR(
+        rclcpp::get_logger("ZeusSystemHardware"),
+        "ROBOT-WIDE ESTOP LATCHED — joint '%s' faulted (reason_mask=0x%X). Withholding "
+        "position commands from ALL joints until the hardware component is re-activated.",
+        info_.joints[i].name.c_str(), reason_mask);
+    }
   }
 }
 

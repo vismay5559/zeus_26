@@ -36,10 +36,13 @@ joint_state_broadcaster:
     # SEA joints (hip_pitch, knee_pitch) export after_spring_angle + load_encoder_position + torque_estimate.
     # QDD joints (hip_roll, ankle_pitch, waist) export only load_encoder_position + torque_estimate.
     # JointStateBroadcaster silently skips after_spring_angle for joints that do not declare it.
+    # actuator_fault is a reason bitmask from zeus_hardware_interface's heartbeat + CAN staleness
+    # watchdog (0 = healthy; see kFaultBit* in zeus_system.hpp for what each bit means).
     interfaces:
       - after_spring_angle
       - load_encoder_position
       - torque_estimate
+      - actuator_fault
 
 imu_sensor_broadcaster:
   ros__parameters:

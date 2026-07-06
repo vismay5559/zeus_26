@@ -11,6 +11,7 @@ namespace zeus_can_interface
 {
 
 // ODrive / ODESC V4.2 CAN Command IDs
+constexpr uint32_t ODESC_CMD_HEARTBEAT = 0x001;
 constexpr uint32_t ODESC_CMD_GET_ENCODER_ESTIMATES = 0x009;
 constexpr uint32_t ODESC_CMD_SET_INPUT_POS = 0x00C;
 constexpr uint32_t ODESC_CMD_SET_AXIS_STATE = 0x007;

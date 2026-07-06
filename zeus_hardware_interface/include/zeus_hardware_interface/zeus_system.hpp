@@ -1,6 +1,7 @@
 #ifndef ZEUS_HARDWARE_INTERFACE__ZEUS_SYSTEM_HPP_
 #define ZEUS_HARDWARE_INTERFACE__ZEUS_SYSTEM_HPP_
 
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -52,6 +53,9 @@ private:
   void read_odrive_can_telemetry();
   void drain_odrive_can_telemetry(zeus_can_interface::SocketCANTransceiver & can_driver, bool uses_can0);
   void handle_odrive_can_frame(const struct canfd_frame & frame, bool uses_can0);
+  void handle_heartbeat_frame(std::size_t joint_index, const struct canfd_frame & frame);
+  void check_actuator_faults();
+  void reset_actuator_fault_state();
   std::size_t joint_index_for_can_node(uint32_t node_id, bool uses_can0) const;
   bool has_sensor_state(const std::string & sensor_name, const std::string & interface_name) const;
   void set_sensor_state(
@@ -68,6 +72,26 @@ private:
   std::vector<double> odrive_load_encoder_positions_;
   std::vector<double> odrive_torque_estimates_;
   std::vector<double> current_interpolated_targets_;
+
+  // --- Actuator fault tracking (heartbeat parsing + CAN staleness + TX failure watchdog) ---
+  std::vector<double> odrive_axis_error_;         // decoded from Heartbeat (0x001), raw ODrive error bitmask
+                                                   // (internal only — not exported; folded into the
+                                                   // kFaultBitAxisError bit of actuator_fault, full value logged)
+  std::vector<double> odrive_axis_state_;         // decoded from Heartbeat (0x001), ODrive axis state enum
+  std::vector<double> joint_fault_states_;        // exported "actuator_fault" state interface: reason bitmask,
+                                                   // 0.0 = healthy, see kFaultBit* below for bit meanings
+  std::vector<bool> joint_command_gated_;         // true -> write() withholds new position commands this joint
+  std::vector<uint32_t> tx_consecutive_failures_; // consecutive failed send_position_target() calls
+  std::vector<std::chrono::steady_clock::time_point> last_heartbeat_rx_;
+  std::vector<std::chrono::steady_clock::time_point> last_encoder_rx_;
+  std::vector<std::chrono::steady_clock::time_point> last_torque_rx_;
+
+  // Whole-robot latch: set the instant ANY joint reports a nonzero actuator_fault.
+  // Once true, write() withholds position commands to ALL joints, not just the faulted
+  // one. Deliberately does not auto-clear — a fault serious enough to warrant a full
+  // stop should not silently resume unsupervised. Cleared only by re-activating the
+  // hardware component (on_activate()), i.e. an operator-driven restart.
+  bool global_estop_latched_ = false;
   std::vector<double> spi_positions_buffer_;
   std::vector<uint8_t> spi_tx_buffer_;  // pre-allocated encoder SPI TX frame (0xFF × 2N bytes)
   std::vector<uint8_t> spi_rx_buffer_;  // pre-allocated encoder SPI RX frame
@@ -108,6 +132,20 @@ private:
   static constexpr uint16_t AS5048A_ANGLE_MASK = 0x1FFF;
   static constexpr uint16_t AS5048A_PARITY_BIT = 0x8000;
   static constexpr uint16_t AS5048A_ERROR_BIT  = 0x0100;
+
+  // Each ODrive must be configured (via odrivetool) to send Get_Heartbeat every 10 ms:
+  //   odrv0.axis0.config.can.heartbeat_rate_ms = 10
+  // Get_Encoder_Estimates / Get_Torques broadcast at 1 kHz per the existing ODrive CAN config.
+  // Timeouts below allow a few missed broadcasts (CAN/SPI scheduling jitter) before latching a fault.
+  static constexpr double kHeartbeatTimeoutMs = 30.0;
+  static constexpr double kCanRxTimeoutMs = 5.0;
+  static constexpr uint32_t kTxFailThreshold = 3;
+
+  // Bit meanings for the "actuator_fault" state interface reason bitmask.
+  static constexpr uint32_t kFaultBitHeartbeatStale = 0x1;
+  static constexpr uint32_t kFaultBitTelemetryStale = 0x2;
+  static constexpr uint32_t kFaultBitAxisError      = 0x4;
+  static constexpr uint32_t kFaultBitTxFailure       = 0x8;
 };
 
 } // namespace zeus_hardware_interface

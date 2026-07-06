@@ -56,6 +56,7 @@
         <state_interface name="after_spring_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
+        <state_interface name="actuator_fault"/>
         <param name="can_bus">can0</param>
         <param name="node_id">1</param>
       </joint>
@@ -64,6 +65,7 @@
         <command_interface name="target_actuator_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
+        <state_interface name="actuator_fault"/>
         <param name="can_bus">can0</param>
         <param name="node_id">2</param>
       </joint>
@@ -73,6 +75,7 @@
         <state_interface name="after_spring_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
+        <state_interface name="actuator_fault"/>
         <param name="can_bus">can0</param>
         <param name="node_id">3</param>
       </joint>
@@ -81,6 +84,7 @@
         <command_interface name="target_actuator_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
+        <state_interface name="actuator_fault"/>
         <param name="can_bus">can0</param>
         <param name="node_id">4</param>
       </joint>
@@ -89,6 +93,7 @@
         <command_interface name="target_actuator_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
+        <state_interface name="actuator_fault"/>
         <param name="can_bus">can0</param>
         <param name="node_id">5</param>
       </joint>
@@ -98,6 +103,7 @@
         <state_interface name="after_spring_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
+        <state_interface name="actuator_fault"/>
         <param name="can_bus">can1</param>
         <param name="node_id">1</param>
       </joint>
@@ -106,6 +112,7 @@
         <command_interface name="target_actuator_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
+        <state_interface name="actuator_fault"/>
         <param name="can_bus">can1</param>
         <param name="node_id">2</param>
       </joint>
@@ -115,6 +122,7 @@
         <state_interface name="after_spring_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
+        <state_interface name="actuator_fault"/>
         <param name="can_bus">can1</param>
         <param name="node_id">3</param>
       </joint>
@@ -123,6 +131,7 @@
         <command_interface name="target_actuator_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
+        <state_interface name="actuator_fault"/>
         <param name="can_bus">can1</param>
         <param name="node_id">4</param>
       </joint>
@@ -131,6 +140,7 @@
         <command_interface name="target_actuator_angle"/>
         <state_interface name="load_encoder_position"/>
         <state_interface name="torque_estimate"/>
+        <state_interface name="actuator_fault"/>
         <param name="can_bus">can1</param>
         <param name="node_id">5</param>
       </joint>
