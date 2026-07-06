@@ -125,6 +125,8 @@ def _wait_for_axis_state(iface: str, node_id: int,
     sock = _open_can_sock(iface)
     sock.settimeout(0.1)
     last_state, last_error = -1, 0
+    frames_total = 0
+    ids_seen: set = set()
     try:
         deadline = time.time() + timeout
         while time.time() < deadline:
@@ -132,15 +134,36 @@ def _wait_for_axis_state(iface: str, node_id: int,
                 raw = sock.recv(72)
             except socket.timeout:
                 continue
-            if len(raw) < 13:
+            if len(raw) < 9:
                 continue
-            if (struct.unpack_from('=I', raw, 0)[0] & 0x7FF) == heartbeat_id:
+            frames_total += 1
+            can_id = struct.unpack_from('=I', raw, 0)[0] & 0x7FF
+            ids_seen.add(can_id)
+            if can_id == heartbeat_id and len(raw) >= 13:
                 last_error = struct.unpack_from('<I', raw, 8)[0]
                 last_state = raw[12]
                 if last_state == desired_state:
                     return last_state, last_error
     finally:
         sock.close()
+        if last_state != desired_state:
+            ids_str = ', '.join(f'0x{i:03X}' for i in sorted(ids_seen)) or 'none'
+            print(
+                f'[CAN diag] frames_received={frames_total}  '
+                f'ids_seen=[{ids_str}]  '
+                f'wanted_heartbeat_id=0x{heartbeat_id:03X}  '
+                f'last_heartbeat_state={last_state}',
+                flush=True)
+            if frames_total == 0:
+                print('[CAN diag] No frames at all — is can_odrive up? '
+                      '(sudo ip link set can_odrive up ...)', flush=True)
+            elif heartbeat_id not in ids_seen:
+                print('[CAN diag] Heartbeat (0x001) never seen. '
+                      'Fix: odrv0.axis0.config.can.heartbeat_rate_ms = 100  '
+                      'then odrv0.save_configuration()', flush=True)
+            else:
+                print(f'[CAN diag] Heartbeat seen but state never reached {desired_state}. '
+                      'ODrive may need calibration.', flush=True)
     return last_state, last_error
 
 
@@ -194,6 +217,7 @@ class HipPitchCommander(Node):
         self._cycle_start    = None
         self._last_log_cycle = -1
         self._home_rev       = 0.0   # ODrive absolute position declared as 0°
+        self._startup_ok     = False
 
         self._cmd_pub = self.create_publisher(
             Float64MultiArray, '/forward_command_controller/commands', 10)
@@ -204,9 +228,9 @@ class HipPitchCommander(Node):
             QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
 
         if not self._startup_sequence():
-            rclpy.shutdown()
             return
 
+        self._startup_ok = True
         # Start 1 kHz publish loop
         self._cycle_start = self.get_clock().now()
         self.create_timer(1.0 / PUBLISH_RATE_HZ, self._tick)
@@ -224,44 +248,38 @@ class HipPitchCommander(Node):
           [1] IDLE  — clears ODrive error flags from any previous crash
           [2] Set POSITION_CONTROL + PASSTHROUGH
           [3] CLOSED_LOOP — motor locks at its current physical position
-          [4] Verify via heartbeat
-          [5] Read pos_estimate → this is HOME (0° for the whole session)
+          [4] Read pos_estimate via 0x009 — confirms CAN alive, declares HOME
+        Note: heartbeat (0x001) is not used here because it is disabled on this
+        ODrive (heartbeat_rate_ms = 0).  Verification is via encoder broadcast.
         """
         log = self.get_logger()
 
         # [1] IDLE first — resets error state
-        log.info('[1/5] Sending IDLE to clear previous errors ...')
+        log.info('[1/4] Sending IDLE to clear previous errors ...')
         _send_axis_state(CAN_IFACE, NODE_ID, _STATE_IDLE)
         time.sleep(0.3)
 
         # [2] Configure controller
-        log.info('[2/5] Setting POSITION_CONTROL + PASSTHROUGH ...')
+        log.info('[2/4] Setting POSITION_CONTROL + PASSTHROUGH ...')
         _send_controller_mode(CAN_IFACE, NODE_ID,
                               _CONTROL_MODE_POSITION, _INPUT_MODE_PASSTHROUGH)
         time.sleep(0.05)
 
         # [3] Enter CLOSED_LOOP — motor holds current position
-        log.info('[3/5] Entering CLOSED_LOOP_CONTROL ...')
+        log.info('[3/4] Entering CLOSED_LOOP_CONTROL (500 ms settling) ...')
         _send_axis_state(CAN_IFACE, NODE_ID, _STATE_CLOSED_LOOP_CONTROL)
+        time.sleep(0.5)   # give ODrive time to complete state transition
 
-        # [4] Verify
-        log.info('[4/5] Verifying CLOSED_LOOP via heartbeat ...')
-        state, error = _wait_for_axis_state(
-            CAN_IFACE, NODE_ID, _STATE_CLOSED_LOOP_CONTROL, timeout=3.0)
-        state_name = _AXIS_STATE_NAMES.get(state, f'UNKNOWN({state})')
-
-        if state != _STATE_CLOSED_LOOP_CONTROL:
-            log.error(
-                f'ODrive did NOT enter CLOSED_LOOP — state={state_name}  '
-                f'error=0x{error:08X}\n'
-                f'Fix in odrivetool:\n'
-                f'  odrv0.clear_errors()\n'
-                f'  odrv0.axis0.requested_state = AxisState.CLOSED_LOOP_CONTROL')
-            return False
-
-        # [5] Declare home = current position
-        log.info('[5/5] Homing: reading current encoder position ...')
-        self._home_rev = _read_home_position(CAN_IFACE, NODE_ID)
+        # [4] Read encoder to confirm ODrive is alive and store HOME
+        log.info('[4/4] Homing: reading current encoder position ...')
+        self._home_rev = _read_home_position(CAN_IFACE, NODE_ID, timeout=2.0)
+        if self._home_rev == 0.0:
+            # _read_home_position returns 0.0 on timeout — warn but continue,
+            # since 0.0 is also a valid absolute position.
+            log.warn(
+                '  No encoder frame received — ODrive may be off or wrong node_id. '
+                f'  Proceeding with home=0.0 rev. '
+                f'  Check: candump {CAN_IFACE} | grep " 0{NODE_ID:02X}9"')
         log.info(
             f'  HOME SET — ODrive absolute: {self._home_rev:.4f} rev '
             f'({self._home_rev * 360:.2f}°)  →  treated as 0° for this session')
@@ -306,6 +324,10 @@ class HipPitchCommander(Node):
 def main() -> None:
     rclpy.init()
     node = HipPitchCommander()
+    if not node._startup_ok:
+        node.destroy_node()
+        rclpy.shutdown()
+        return
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

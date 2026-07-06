@@ -20,6 +20,8 @@ install(
   PROGRAMS
     scripts/single_joint_commander.py
     scripts/trajectory_plotter.py
+    scripts/backlash_test.py
+    scripts/odrive_diag.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
