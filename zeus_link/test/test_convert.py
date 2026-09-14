@@ -29,8 +29,14 @@ def test_fill_state_msg_preserves_values_including_nan(packet):
 def test_fill_state_msg_on_the_real_message_class_when_ros_is_present(packet):
     # Skipped off the robot. Under `colcon test` this runs against the classes
     # rosidl actually generated, which is the check StrictMsg stands in for.
-    zeus_msgs = pytest.importorskip("zeus_msgs.msg")
-    msg = zeus_msgs.NexusState()
+    #
+    # importorskip alone is not enough: run from the workspace root, the source
+    # folder zeus_msgs/msg/ imports as an empty namespace package. Only a
+    # sourced ROS install has the generated class.
+    NexusState = getattr(pytest.importorskip("zeus_msgs.msg"), "NexusState", None)
+    if NexusState is None:
+        pytest.skip("zeus_msgs is not built and sourced")
+    msg = NexusState()
     convert.fill_state_msg(msg, packet)
     assert msg.seq == packet.seq
     np.testing.assert_allclose(convert.policy_block(msg), convert.policy_block(packet))
