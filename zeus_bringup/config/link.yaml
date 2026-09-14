@@ -1,0 +1,14 @@
+zeus_link:
+  ros__parameters:
+    # "auto" finds the board by its USB IDs (0483:5740), or uses /dev/zeus_stm32
+    # if the udev rule in this folder is installed. A device path overrides both.
+    port: auto
+
+    # /joint_states for robot_state_publisher, RViz and TF. 0 turns it off.
+    # /zeus/state is always published at the full rate the Pi can manage.
+    joint_state_rate_hz: 100.0
+
+    # Link health (rates, loss, junk bytes) is logged this often.
+    stats_period_sec: 5.0
+
+    frame_id: base_link

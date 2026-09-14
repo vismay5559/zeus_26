@@ -1,0 +1,4 @@
+# This workspace runs on Linux. A Python file checked out with CRLF endings on
+# Windows and copied to the Pi fails before its first line: the shebang reads
+# "python3\r", which does not exist. Keep every text file LF, everywhere.
+* text=auto eol=lf

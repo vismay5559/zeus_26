@@ -1,0 +1,67 @@
+# Two jobs, because they catch different things.
+#
+#   python   the protocol, conversion and rerun tests on a plain runner - fast,
+#            and the same tests run on a laptop with no ROS
+#   colcon   the real build in ROS 2 Jazzy: message generation, package
+#            metadata, install layout, the generated message classes against
+#            convert.py, and every launch file parsed
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest pyserial numpy rerun-sdk xacro
+      - name: zeus_link tests
+        run: python -m pytest zeus_link/test -q
+      - name: zeus_rerun tests
+        run: python -m pytest zeus_rerun/test -q
+
+  colcon:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          rosdep update --rosdistro jazzy
+          rosdep install --from-paths . --ignore-src -y --rosdistro jazzy
+          apt-get install -y python3-pytest
+
+      - name: Build
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --event-handlers console_cohesion+
+
+      - name: Test
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          colcon test --packages-select zeus_link --event-handlers console_cohesion+
+          colcon test-result --verbose
+
+      - name: Launch files and model load
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          xacro zeus_description/urdf/zeus.urdf.xacro > /tmp/zeus.urdf
+          ros2 launch zeus_bringup robot.launch.py --show-args
+          ros2 launch zeus_bringup walk.launch.py --show-args
+          ros2 launch zeus_description display.launch.py --show-args
+          ros2 interface show zeus_msgs/msg/NexusState > /dev/null
+          ros2 interface show zeus_msgs/msg/NexusCommand > /dev/null
+          ros2 pkg executables zeus_link
+          ros2 pkg executables zeus_rerun

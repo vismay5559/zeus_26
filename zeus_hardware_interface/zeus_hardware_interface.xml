@@ -1,9 +1,0 @@
-<library path="zeus_hardware_interface">
-  <class name="zeus_hardware_interface/ZeusSystemHardware"
-         type="zeus_hardware_interface::ZeusSystemHardware"
-         base_class_type="hardware_interface::SystemInterface">
-    <description>
-      Zeus Custom SEA Hardware Interface for ODESC CAN and SPI Encoders.
-    </description>
-  </class>
-</library>

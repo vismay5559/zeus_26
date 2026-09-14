@@ -1,0 +1,15 @@
+# The STM32's USB link (USB CDC, 0483:5740) as /dev/zeus_stm32.
+#
+#   sudo cp 99-zeus-stm32.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#   sudo usermod -aG dialout $USER        # then log out and back in
+#
+# SYMLINK      a name that survives replugging and the ST-LINK's own ttyACM port
+# GROUP/MODE   readable by the dialout group, so nothing needs sudo
+# ID_MM_DEVICE_IGNORE
+#              ModemManager, which Ubuntu runs by default, probes every new
+#              ttyACM device by writing AT commands to it for several seconds.
+#              That both holds the port and injects bytes the STM32 has to
+#              discard. This tells it to leave the board alone.
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", SYMLINK+="zeus_stm32", GROUP="dialout", MODE="0660", ENV{ID_MM_DEVICE_IGNORE}="1"
