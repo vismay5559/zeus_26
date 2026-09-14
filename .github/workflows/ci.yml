@@ -65,3 +65,30 @@ jobs:
           ros2 interface show zeus_msgs/msg/NexusCommand > /dev/null
           ros2 pkg executables zeus_link
           ros2 pkg executables zeus_rerun
+
+      - name: Real generated messages accept what convert.py produces
+        # The pytest version of this can skip; this one cannot.
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          python3 - <<'EOF'
+          import math
+          from zeus_msgs.msg import NexusCommand, NexusState
+          from zeus_link.convert import fill_state_msg, policy_block, STATE_FIELDS
+          from zeus_link.nexus_proto import NexusState as Packet
+          from zeus_link.synthetic import state_packet
+
+          pkt = Packet.parse(state_packet(seq=7))
+          msg = NexusState()
+          fill_state_msg(msg, pkt)
+          assert msg.seq == 7
+          assert math.isnan(float(msg.foot_z[1]))
+          assert policy_block(msg).size == 52
+          assert len(STATE_FIELDS) == len(NexusState.get_fields_and_field_types()) - 1
+
+          cmd = NexusCommand()
+          cmd.residual_rad = [0.0] * 10
+          cmd.enable = True
+          print("real zeus_msgs classes accept convert.py output:",
+                len(STATE_FIELDS), "fields")
+          EOF
