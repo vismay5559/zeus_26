@@ -65,6 +65,15 @@ jobs:
           ros2 interface show zeus_msgs/msg/NexusCommand > /dev/null
           ros2 pkg executables zeus_link
           ros2 pkg executables zeus_rerun
+          # rerun_node must follow an activated venv; the robot nodes must not
+          head -1 install/zeus_rerun/lib/zeus_rerun/rerun_node | grep -qx '#!/usr/bin/env python3'
+          head -1 install/zeus_link/lib/zeus_link/link_node | grep -qx '#!/usr/bin/python3'
+
+      - name: End to end against the fake board
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          python3 zeus_link/test/e2e_fake_board.py
 
       - name: Real generated messages accept what convert.py produces
         # The pytest version of this can skip; this one cannot.

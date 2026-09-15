@@ -40,9 +40,12 @@ try:
     import rerun.blueprint as rrb
 except ImportError as exc:        # pragma: no cover - message for the robot
     raise ImportError(
-        "rerun-sdk is not installed. On the Pi:\n"
-        "    python3 -m pip install --user --break-system-packages rerun-sdk\n"
-        "and install the SAME version on the laptop that runs the viewer."
+        "rerun-sdk is not importable. It lives in its own venv, because it needs\n"
+        "numpy 2 and ROS Jazzy's Python is built against numpy 1.26:\n"
+        "    python3 -m venv --system-site-packages ~/rerun_venv\n"
+        "    ~/rerun_venv/bin/pip install rerun-sdk\n"
+        "then `source ~/rerun_venv/bin/activate` before ros2 run / ros2 launch.\n"
+        "Install the SAME rerun-sdk version wherever the viewer runs."
     ) from exc
 
 from zeus_link.nexus_proto import CONTACT_NAMES, JOINT_NAMES

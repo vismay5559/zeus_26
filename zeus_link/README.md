@@ -16,6 +16,7 @@ STM32 ◄──USB, 52 B @ 250 Hz── link_node ◄── /zeus/command  zeus_
 | `link_node` | yes | Owns the port. Publishes state, forwards commands, logs link health and every change in safety state, estimator state, health bits and ODrive errors |
 | `gait_passthrough_node` | yes | Zero residual at 250 Hz. `enable:=false` (default) holds the board in IDLE; `enable:=true` walks the stored gait |
 | `link_check` | no | Reads the link and prints rate, loss and status once a second. First thing to run on a new Pi |
+| `fake_board` | no | A fake STM32 on a pty (Linux/macOS): 1 kHz packets, commands parsed, the firmware's arm/fault/re-arm rules. Run the whole stack with no robot |
 
 ```bash
 ros2 run zeus_link link_check --joints
@@ -114,3 +115,15 @@ cd zeus_link && python3 -m pytest test -q
   under `colcon test` it also runs against the real generated class
 - port discovery picks the link over the ST-LINK
 - the reader thread, end to end through a serial loopback
+
+End to end, with a built and sourced workspace (CI runs this too):
+
+```bash
+python3 zeus_link/test/e2e_fake_board.py
+```
+
+It runs `link_node` and `gait_passthrough_node` against `fake_board` and
+checks: 1 kHz on `/zeus/state`, every command intact and in sequence, arming,
+stand-down, and — the two bugs it was written after — that `/zeus/state` keeps
+publishing when the board faults, and that a policy restarted after a fault
+re-arms it. Against the code before those fixes, exactly those checks fail.

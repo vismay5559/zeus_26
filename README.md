@@ -74,8 +74,16 @@ What the board does with commands — worth knowing before anything moves:
    target inside the joint envelope, and no jump bigger than 0.5 turn.
 5. **If commands stop for 200 ms**, the link fault idles every axis → `FAULT`.
 6. **After any fault it will not re-arm** until it has seen a command with
-   `enable` false. `gait_passthrough_node` does this handshake automatically on
-   start; your policy should too (the template below does).
+   `enable` false. `gait_passthrough_node` does this handshake on start, and
+   keeps `enable` false until the board actually reports IDLE; your policy
+   should too (the template does). A fixed-length handshake from startup is
+   not enough — it can finish before DDS has connected the policy to the link
+   node, and every frame of it is lost.
+7. **Each `enable` false starts a new command session.** Within a session the
+   sequence number must advance; across one it may start again. That is what
+   lets a restarted `link_node`, counting from 0, re-arm a board that has been
+   running for hours. (Firmware before the `s_seq_valid` fix in stm32_zeuss
+   refused it until the STM32 was rebooted.)
 
 ## Joint map
 
@@ -156,9 +164,10 @@ sudo cp src/zeus_bringup/config/99-zeus-stm32.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 sudo usermod -aG dialout $USER            # log out and back in after this
 
-# 3. Rerun SDK (pip - it is not an apt package). --break-system-packages is
-#    how Ubuntu 24.04 lets pip install next to the ROS Python.
-python3 -m pip install --user --break-system-packages rerun-sdk
+# 3. Rerun SDK, in its own venv. It needs numpy 2; ROS Jazzy's Python is built
+#    on numpy 1.26, and a --user install breaks apt's scipy and friends.
+python3 -m venv --system-site-packages ~/rerun_venv
+~/rerun_venv/bin/pip install rerun-sdk
 
 # 4. build
 source /opt/ros/jazzy/setup.bash
@@ -198,7 +207,8 @@ ros2 launch zeus_bringup walk.launch.py enable:=true
 ros2 launch zeus_bringup walk.launch.py policy:=rl enable:=true
 ```
 
-Add `rerun:=connect rerun_host:=<laptop IP>` to any launch to watch it live.
+Add `rerun:=connect rerun_host:=<laptop IP>` to any launch to watch it live —
+after `source ~/rerun_venv/bin/activate` in that terminal.
 
 **Stopping.** `ctrl-c` on the launch sends `enable` false on the way out. To
 stop moving *without* stopping anything:
@@ -207,6 +217,19 @@ stop moving *without* stopping anything:
 ros2 service call /zeus/stand_down std_srvs/srv/Trigger    # idle the drives
 ros2 service call /zeus/resume     std_srvs/srv/Trigger    # hand enable back
 ```
+
+### Without the robot
+
+`fake_board` stands in for the STM32 on a pseudo-terminal: 1 kHz packets out,
+commands parsed, the firmware's arm/fault/re-arm rules modelled. Everything on
+the Pi runs for real, which makes it the place to develop the policy.
+
+```bash
+ros2 run zeus_link fake_board                                            # terminal 1
+ros2 launch zeus_bringup walk.launch.py port:=/tmp/zeus_fake_board enable:=true   # terminal 2
+```
+
+It does not simulate the robot — `joint_pos` does not respond to the residual.
 
 ---
 
@@ -239,11 +262,11 @@ not need to be on the same machine. **The Pi logs; your laptop looks.** The
 viewer is never in the control path — losing Wi-Fi costs plots, never a command.
 
 ```bash
-# laptop - same rerun-sdk version as the Pi
-pip install rerun-sdk
+# laptop - same rerun-sdk version as the Pi (venv on Ubuntu, plain pip elsewhere)
 rerun                                    # opens and waits on port 9876
 
 # Pi - alongside the robot
+source ~/rerun_venv/bin/activate
 ros2 launch zeus_bringup walk.launch.py rerun:=connect rerun_host:=192.168.1.50
 ```
 
@@ -290,10 +313,12 @@ working minimal example is `zeus_link/gait_passthrough_node.py`.
 | `could not open port … busy` | Another program holds it: `link_check`, `rerun_serial`, a second `link_node` |
 | rate well under 1000 Hz | Pi overloaded, or the tty low-latency mode did not take; run `link_check` alone |
 | board stays `BOOT`, `LINK` fault | Nothing is publishing `/zeus/command` — expected with `robot.launch.py` alone |
-| `enable:=true` but never `ARMED` | Another health fault (see the log), or drives not reaching closed loop |
+| `enable:=true` but never `ARMED` | The policy logs why every 2 s: no link node, no state, or the board's health faults |
 | `FAULT` after stopping the policy | Expected: commands stopped. Restart; the handshake clears it |
 | subscriber gets nothing | QoS mismatch — use `zeus_link.qos` |
 | Rerun connects, shows nothing | Viewer not running, port 9876 blocked, or SDK and viewer versions differ |
+| `rerun-sdk is not importable` | The venv is not active in that terminal |
+| scipy / numpy errors after installing rerun | It went into user site. `python3 -m pip uninstall --break-system-packages rerun-sdk pyarrow numpy`, then use the venv |
 
 ---
 

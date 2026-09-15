@@ -17,21 +17,38 @@ control path**: a dropped connection is a blank plot, never a stalled leg.
 
 ## Install
 
-**Pi** — rerun-sdk comes from pip, not apt:
+**Pi, or any Ubuntu machine with ROS** — in its own venv:
 
 ```bash
-python3 -m pip install --user --break-system-packages rerun-sdk
+python3 -m venv --system-site-packages ~/rerun_venv
+~/rerun_venv/bin/pip install rerun-sdk
 ```
 
-**Laptop** (Windows, macOS or Linux):
+and activate it in any terminal that runs `rerun_node`:
 
 ```bash
-pip install rerun-sdk
+source ~/rerun_venv/bin/activate
+ros2 launch zeus_bringup walk.launch.py rerun:=connect rerun_host:=192.168.1.50
 ```
 
-**Use the same version on both** (`python3 -m pip show rerun-sdk`). The SDK and
-viewer refuse to talk across versions. Tested with 0.37.2; anything from 0.23
-on has the APIs used here.
+**Do not `pip install --user --break-system-packages rerun-sdk`.** Every
+rerun-sdk with the APIs used here (0.23 onwards) requires numpy 2, and pip will
+install it into your user site, where it shadows the numpy 1.26 that Ubuntu
+24.04 and ROS Jazzy are built against. Tested on Ubuntu 24.04: rclpy and our
+messages happened to survive, but apt's scipy broke immediately (`numpy.dtype
+size changed`), and so does any apt package compiled against numpy 1.
+
+Why the venv works: `--system-site-packages` keeps rclpy and the ROS packages
+visible, while numpy 2 and rerun stay inside the venv. `rerun_node` is installed
+with `#!/usr/bin/env python3` (see `setup.cfg`), so it runs on the venv's Python
+when the venv is active. Every other node keeps `/usr/bin/python3` and the
+system numpy, venv or not.
+
+**Laptop** — the viewer. On Ubuntu use a venv the same way and run
+`~/rerun_venv/bin/rerun`. On Windows or macOS, `pip install rerun-sdk` is fine.
+
+**Use the same rerun-sdk version everywhere** (`pip show rerun-sdk`). The SDK
+and viewer refuse to talk across versions. Tested with 0.37.2.
 
 ## Three ways to use it
 
@@ -76,7 +93,7 @@ PYTHONPATH=zeus_rerun:zeus_link python3 -m zeus_rerun.rerun_serial --spawn
 #   $env:PYTHONPATH="zeus_rerun;zeus_link"; python -m zeus_rerun.rerun_serial --spawn
 ```
 
-Needs `pip install rerun-sdk pyserial numpy`. Also works on the Pi as
+Needs `rerun-sdk pyserial numpy` (in a venv on Linux). Also works on the Pi as
 `ros2 run zeus_rerun rerun_serial --connect <laptop>` — but only when
 `link_node` is not running, since only one program can hold the port.
 

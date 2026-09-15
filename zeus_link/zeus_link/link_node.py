@@ -126,27 +126,43 @@ class LinkNode(Node):
                 continue
             last_seq = pkt.seq
 
-            stamp = self.get_clock().now().to_msg()
-            msg.header.stamp = stamp
-            fill_state_msg(msg, pkt)
-            self._state_pub.publish(msg)
-            self._published += 1
+            # Nothing may end this loop but _stop. It is the only thing
+            # publishing /zeus/state, and a thread that dies here leaves the
+            # policy acting on its last observation while commands still flow -
+            # which is what happened, at the first FAULT, before this guard.
+            try:
+                stamp = self.get_clock().now().to_msg()
+                msg.header.stamp = stamp
+                fill_state_msg(msg, pkt)
+                self._state_pub.publish(msg)
+                self._published += 1
 
-            now = time.monotonic()
-            if self._js_pub is not None and (now - last_js) >= js_period:
-                last_js = now
-                js.header.stamp = stamp
-                js.name, js.position, js.velocity, js.effort = joint_state_arrays(pkt)
-                self._js_pub.publish(js)
+                now = time.monotonic()
+                if self._js_pub is not None and (now - last_js) >= js_period:
+                    last_js = now
+                    js.header.stamp = stamp
+                    js.name, js.position, js.velocity, js.effort = joint_state_arrays(pkt)
+                    self._js_pub.publish(js)
 
-            self._log_changes(pkt)
+                self._log_changes(pkt)
+            except Exception as exc:    # noqa: BLE001 - logged, and the stream goes on
+                if self._stop.is_set() or not rclpy.ok():
+                    break               # shutting down: the context went first
+                self.get_logger().error(f"state publish failed: {exc!r}",
+                                        throttle_duration_sec=1.0)
 
     def _log_changes(self, pkt) -> None:
         log = self.get_logger()
 
+        # One severity per line of code. rclpy keys its logging state on the
+        # call site and raises if the same line logs at two severities, so
+        # "(log.warn if fault else log.info)(...)" throws on the first FAULT.
         if pkt.safety_state != self._seen_safety:
             name = SAFETY_NAMES.get(pkt.safety_state, str(pkt.safety_state))
-            (log.warn if name == "FAULT" else log.info)(f"safety state -> {name}")
+            if name == "FAULT":
+                log.warn(f"safety state -> {name}")
+            else:
+                log.info(f"safety state -> {name}")
             self._seen_safety = pkt.safety_state
 
         if pkt.fused_valid != self._seen_fusion:

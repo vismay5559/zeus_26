@@ -22,6 +22,7 @@ setup(
             'link_node = zeus_link.link_node:main',
             'gait_passthrough_node = zeus_link.gait_passthrough_node:main',
             'link_check = zeus_link.link_check:main',
+            'fake_board = zeus_link.fake_board:main',
         ],
     },
 )

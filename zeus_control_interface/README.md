@@ -68,7 +68,7 @@ from zeus_link.qos import COMMAND_QOS, STATE_QOS
 from zeus_msgs.msg import NexusCommand, NexusState
 
 RATE_HZ = 250.0
-HANDSHAKE_TICKS = 50        # 0.2 s of enable=false first: clears a latched fault
+HANDSHAKE_TICKS = 50        # board must read IDLE/ARMED this long before enabling
 STALE_SEC = 0.02            # no new state for 20 ms -> stop enabling
 
 
@@ -80,7 +80,8 @@ class RLPolicyNode(Node):
 
         self.state = None
         self.state_time = 0.0       # when seq last advanced
-        self.handshake = HANDSHAKE_TICKS
+        self.confirmed = 0
+        self.handshake_done = False
 
         self.create_subscription(NexusState, 'zeus/state', self.on_state, STATE_QOS)
         self.pub = self.create_publisher(NexusCommand, 'zeus/command', COMMAND_QOS)
@@ -102,9 +103,14 @@ class RLPolicyNode(Node):
         s = self.state
         fresh = s is not None and (time.monotonic() - self.state_time) < STALE_SEC
 
-        if self.handshake > 0:
-            self.handshake -= 1
-        elif s is not None and fresh:
+        if not self.handshake_done:
+            # enable false until the link node is listening AND the board says
+            # IDLE or ARMED - which is what clears a latched fault
+            ready = (fresh and self.pub.get_subscription_count() > 0
+                     and s.safety_state in (NexusState.SAFETY_IDLE, NexusState.SAFETY_ARMED))
+            self.confirmed = self.confirmed + 1 if ready else 0
+            self.handshake_done = self.confirmed >= HANDSHAKE_TICKS
+        elif fresh:
             obs = policy_block(s)                                  # 52 raw SI values
             obs = np.nan_to_num(obs)                              # <-- 2. your normalisation
             residual = np.zeros(10, dtype=np.float32)             # <-- 3. self.policy(obs)
@@ -130,8 +136,12 @@ def main(args=None):
 Notes on the choices in it:
 
 - **The handshake.** The STM32 latches every fault and refuses to arm until it
-  sees `enable` false. Sending it for 0.2 s on start means restarting the node
-  is always enough to recover.
+  sees `enable` false. The template keeps sending it until the board *reports*
+  IDLE or ARMED, so restarting the node is always enough to recover. Do not
+  shorten it to a fixed count from startup: that finishes before DDS discovery
+  has connected the node, the frames are dropped, and the board stays latched.
+  This was found against `fake_board` in `gait_passthrough_node`, which had
+  exactly that bug.
 - **Clipping here is deliberate** — unlike in `zeus_link`, which passes values
   through. This is where the policy's authority is decided; the board rejects
   anything past ±0.628 rad outright.
