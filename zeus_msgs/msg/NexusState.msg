@@ -57,6 +57,10 @@ uint8 HEALTH_TIMING=32
 uint8 FK_RIGHT_VALID=1
 uint8 FK_LEFT_VALID=2
 uint8 STREAM_GAIT_LIVE=1
+# Set by the single-leg bench test (STM32 NEXUS_MODE_LEG_CAN), not the robot loop.
+# Only the joints that test drives are real; estimator, IMU, springs and
+# contacts are not running. Commands sent back are ignored by the board.
+uint8 STREAM_LEG_TEST=2
 
 std_msgs/Header header
 

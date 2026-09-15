@@ -66,6 +66,7 @@ def test_other_constants_match_the_protocol():
     assert c["CONTACTS_LEFT_FOOT_BIT"] == P.CONTACT_L_FOOT
     assert c["CONTACTS_RIGHT_FOOT_BIT"] == P.CONTACT_R_FOOT
     assert c["STREAM_GAIT_LIVE"] == P.STREAM_GAIT_LIVE
+    assert c["STREAM_LEG_TEST"] == P.STREAM_LEG_TEST
     assert (c["FK_RIGHT_VALID"], c["FK_LEFT_VALID"]) == (P.FK_RIGHT_VALID, P.FK_LEFT_VALID)
     assert [c["CONTACT_" + n.upper()] for n in P.CONTACT_NAMES] == [0, 1, 2, 3]
 

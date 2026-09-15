@@ -34,6 +34,8 @@ def main(argv=None) -> int:
     g.add_argument("--save", metavar="FILE.rrd", help="record to a file")
     g.add_argument("--spawn", action="store_true", help="open a viewer on this machine")
     ap.add_argument("--viewer-port", type=int, default=viz.VIEWER_PORT)
+    ap.add_argument("--degrees", action="store_true",
+                    help="joint angles in degrees instead of radians")
     ap.add_argument("--decimate", type=int, default=10,
                     help="log every Nth packet (default 10 = 100 Hz)")
     a = ap.parse_args(argv)
@@ -61,7 +63,7 @@ def main(argv=None) -> int:
                 last_seq = pkt.seq
                 n += 1
                 if n % decimate == 0:
-                    viz.log_state(pkt)
+                    viz.log_state(pkt, degrees=a.degrees)
                 if n % 5000 == 0:
                     print(f"  {n} packets, link {link.stats}")
         except KeyboardInterrupt:

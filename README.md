@@ -233,6 +233,82 @@ It does not simulate the robot — `joint_pos` does not respond to the residual.
 
 ---
 
+## Testing the USB cable, and watching the leg test live
+
+You can test the STM32 → Pi link on the bench, without the robot and without
+ROS, in three steps. Each step proves the one before it.
+
+### The two USB ports on the Nucleo
+
+| port | for |
+|---|---|
+| **ST-LINK** | flashing, and the text console (115200) |
+| **USB user port** | **this link** — USB OTG HS, 480 Mbit/s. Plug it into the Pi |
+
+The board is a USB device and the Pi is the host. On the Pi it becomes a serial
+port, `/dev/ttyACM*`, USB ID `0483:5740`, carrying binary packets: 444 bytes of
+state every millisecond out, commands in.
+
+**Which firmware sends packets:** `NEXUS_MODE_ROBOT` always, and
+`NEXUS_MODE_LEG_CAN` — the single-leg test streams its run as the same packet
+(stm32_zeuss `LEGTEST_USB_STREAM`, on by default). In the leg test the board
+**ignores commands**, so nothing on the Pi can move the leg. The bench leg is on
+CAN bus 0, so it shows up as the **left** leg: `left_hip_pitch`,
+`left_knee_pitch`, `left_ankle_pitch`, with `ref_angle` = the target it sent.
+
+### 1. The cable enumerates
+
+```bash
+lsusb | grep 0483:5740       # STMicroelectronics Virtual COM Port
+lsusb -t                     # that device must say 480M
+sudo dmesg | tail            # "new high-speed USB device", "cdc_acm ... ttyACMn"
+```
+
+Not listed: wrong port (ST-LINK), a charge-only cable, or the firmware is not
+running. `12M` / "full-speed": swap the cable or port — 12 Mbit/s cannot carry
+the stream.
+
+### 2. Packets arrive intact — no ROS needed
+
+```bash
+cd zeus_26
+PYTHONPATH=zeus_link python3 -m zeus_link.link_check --joints
+```
+
+Healthy: **~1000 Hz, 0.000% lost, 0 junk B**, and a `LEG TEST` or `ROBOT` column.
+0 Hz means the board is in a mode that sends nothing; junk bytes climbing
+usually means ModemManager has the port — install the udev rule.
+
+### 3. Watch it live on your laptop
+
+```bash
+# laptop, once
+python3 -m venv --system-site-packages ~/rerun_venv && ~/rerun_venv/bin/pip install rerun-sdk
+# laptop, each time
+~/rerun_venv/bin/rerun          # viewer opens and waits
+hostname -I                     # note the laptop's IP
+
+# Pi (same venv set up once)
+cd zeus_26
+PYTHONPATH=zeus_rerun:zeus_link ~/rerun_venv/bin/python -m zeus_rerun.rerun_serial \
+    --connect <LAPTOP_IP> --degrees
+```
+
+Run the leg test: the **Joints** tab plots each joint's actual angle against its
+target, in degrees, live. Same rerun-sdk version on both machines; same network.
+
+With ROS on the Pi, the same view goes through `link_node` and `/zeus/state`:
+
+```bash
+source ~/rerun_venv/bin/activate
+ros2 launch zeus_bringup robot.launch.py rerun:=connect rerun_host:=<LAPTOP_IP> rerun_degrees:=true
+```
+
+**No Pi yet?** Plug the user port straight into the laptop, run step 2 there,
+and use `rerun_serial --spawn --degrees`.
+
+---
+
 ## Topics and services
 
 | name | type | direction | rate | QoS |

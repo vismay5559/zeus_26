@@ -17,6 +17,7 @@ Parameters
     port       viewer's port, default 9876
     path       .rrd file, for save
     decimate   log every Nth state; 10 = 100 Hz of plots (1 kHz / 10)
+    degrees    joint angles in degrees instead of radians
 
 The viewer is never in the control path. A dropped Wi-Fi connection costs
 plots, never a command.
@@ -43,6 +44,7 @@ class RerunNode(Node):
         port = int(self.declare_parameter("port", viz.VIEWER_PORT).value)
         path = str(self.declare_parameter("path", "zeus.rrd").value)
         self._decimate = max(1, int(self.declare_parameter("decimate", 10).value))
+        self._degrees = bool(self.declare_parameter("degrees", False).value)
 
         where = viz.open_sink(mode, host=host, port=port, path=path)
 
@@ -59,7 +61,7 @@ class RerunNode(Node):
         self._last_seq = msg.seq
         self._count += 1
         if self._count % self._decimate == 0:
-            viz.log_state(msg)
+            viz.log_state(msg, degrees=self._degrees)
 
     def _on_command(self, msg: NexusCommand) -> None:
         viz.log_residual(self._last_seq, msg.residual_rad)

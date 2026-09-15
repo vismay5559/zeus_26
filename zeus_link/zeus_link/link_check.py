@@ -19,7 +19,7 @@ import sys
 import time
 
 from .nexus_link import NexusLink
-from .nexus_proto import JOINT_NAMES, SAFETY_NAMES
+from .nexus_proto import JOINT_NAMES, SAFETY_NAMES, STREAM_LEG_TEST
 from .odrive_names import axis_state_name, error_names
 from .ports import PortError, find_port
 
@@ -56,7 +56,8 @@ def main(argv=None) -> int:
                     continue
 
                 faults = ",".join(pkt.faults()) or "none"
-                print(f"{rate:7.1f} Hz | seq {pkt.seq:9d} | {link.stats} | "
+                source = "LEG TEST" if pkt.stream_flags & STREAM_LEG_TEST else "ROBOT"
+                print(f"{rate:7.1f} Hz | {source:8s} | seq {pkt.seq:9d} | {link.stats} | "
                       f"{SAFETY_NAMES.get(pkt.safety_state, '?'):5s} | "
                       f"fusion {FUSION_NAMES.get(pkt.fused_valid, '?'):10s} | "
                       f"phase {pkt.phase:.3f} | faults {faults}")

@@ -41,7 +41,8 @@ from zeus_msgs.msg import NexusCommand, NexusState
 from .convert import (RESIDUAL_LIMIT_RAD, fill_state_msg, joint_state_arrays,
                       names_of, residual_rad_to_turns)
 from .nexus_link import NexusLink
-from .nexus_proto import (HEALTH_NAMES, JOINT_NAMES, NUM_JOINTS, SAFETY_NAMES)
+from .nexus_proto import (HEALTH_NAMES, JOINT_NAMES, NUM_JOINTS, SAFETY_NAMES,
+                          STREAM_LEG_TEST)
 from .odrive_names import axis_state_name, error_names
 from .ports import PortError, find_port
 from .qos import COMMAND_QOS, STATE_QOS
@@ -85,6 +86,7 @@ class LinkNode(Node):
         # What was last reported, so the log carries changes rather than a
         # repeat of the same state 1000 times a second.
         self._seen_safety = None
+        self._seen_source = None
         self._seen_fusion = None
         self._seen_health = None
         self._seen_act_error = [0] * NUM_JOINTS
@@ -153,6 +155,15 @@ class LinkNode(Node):
 
     def _log_changes(self, pkt) -> None:
         log = self.get_logger()
+
+        source = bool(pkt.stream_flags & STREAM_LEG_TEST)
+        if source != self._seen_source:
+            if source:
+                log.warn("source: the STM32 single-leg bench test (NEXUS_MODE_LEG_CAN). "
+                         "Only its joints are real, and the board ignores commands.")
+            else:
+                log.info("source: the STM32 robot loop (NEXUS_MODE_ROBOT)")
+            self._seen_source = source
 
         # One severity per line of code. rclpy keys its logging state on the
         # call site and raises if the same line logs at two severities, so

@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# COPIED from stm32_zeuss/pi/nexus_proto.py at 831b7ff. That copy is canonical: its
+# COPIED from stm32_zeuss/pi/nexus_proto.py at 16bd04f. That copy is canonical: its
 # tools/check_proto.py verifies every field offset, both packet sizes and the
 # joint map against Appli/App/link_proto.h. When the protocol version changes,
 # copy the new file over this one rather than editing it here.
@@ -149,6 +149,7 @@ FK_LEFT_VALID = 1 << 1
 
 # stream_flags - which optional parts of the packet are really being produced
 STREAM_GAIT_LIVE = 1 << 0
+STREAM_LEG_TEST = 1 << 1    # from the single-leg bench test, not the robot loop
 
 ACT_TELEM_FRESH = 1 << 0
 ACT_HB_FRESH = 1 << 1

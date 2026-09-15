@@ -7,7 +7,8 @@ two share names on purpose, so there is one logging path, not two.
 
 WHAT IS LOGGED, AND WHERE (rerun groups plots by path)
 
-  joints/<joint>        actual (joint_pos) vs reference (ref_angle), rad
+  joints/<joint>        actual (joint_pos) vs reference (ref_angle), rad -
+                        or degrees with degrees=True, like the leg test's plots
   policy/residual       residual_rad the policy sent, all 10 joints   (ROS only)
   velocity, torque      all 10 joints each
   estimator/*           pelvis_z, vel_hdg, fused_valid
@@ -160,15 +161,21 @@ def _f(values) -> list:
     return [float(v) for v in values]
 
 
-def log_state(s) -> None:
-    """Log one state onto the robot timeline."""
-    set_time(s.seq)
+RAD_TO_DEG = 180.0 / math.pi
 
-    pos, ref = _f(s.joint_pos), _f(s.ref_angle)
+
+def log_state(s, degrees: bool = False) -> None:
+    """Log one state onto the robot timeline. degrees=True logs joint angles
+    and velocities in degrees (and deg/s) instead of radians."""
+    set_time(s.seq)
+    k = RAD_TO_DEG if degrees else 1.0
+
+    pos = [v * k for v in _f(s.joint_pos)]
+    ref = [v * k for v in _f(s.ref_angle)]
     for i, n in enumerate(JOINT_NAMES):
         rr.log(f"joints/{n}", rr.Scalars([pos[i], ref[i]]))
 
-    rr.log("velocity", rr.Scalars(_f(s.joint_vel)))
+    rr.log("velocity", rr.Scalars([v * k for v in _f(s.joint_vel)]))
     rr.log("torque", rr.Scalars(_f(s.act_torque)))
 
     rr.log("estimator/pelvis_z", rr.Scalars([float(s.pelvis_z)]))

@@ -14,6 +14,7 @@ Arguments
     rerun_host    the laptop running `rerun`, for connect
     rerun_path    .rrd file, for save
     rerun_decimate  log every Nth state (10 = 100 Hz)
+    rerun_degrees   true = joint angles in degrees
     shm_only      true = Fast DDS shared memory only. Lower jitter on the Pi,
                   but no topic is visible from another machine.
 """
@@ -51,6 +52,7 @@ def generate_launch_description():
         DeclareLaunchArgument('rerun_host', default_value=''),
         DeclareLaunchArgument('rerun_path', default_value='zeus.rrd'),
         DeclareLaunchArgument('rerun_decimate', default_value='10'),
+        DeclareLaunchArgument('rerun_degrees', default_value='false'),
         DeclareLaunchArgument('shm_only', default_value='false'),
 
         SetEnvironmentVariable(
@@ -73,6 +75,8 @@ def generate_launch_description():
                  'path': LaunchConfiguration('rerun_path'),
                  'decimate': ParameterValue(LaunchConfiguration('rerun_decimate'),
                                             value_type=int),
+                 'degrees': ParameterValue(LaunchConfiguration('rerun_degrees'),
+                                           value_type=bool),
              }],
              output='screen', emulate_tty=True),
     ])

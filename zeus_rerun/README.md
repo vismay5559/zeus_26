@@ -127,6 +127,7 @@ animated joints is the natural next step.
 | `port` | 9876 | viewer's port |
 | `path` | `zeus.rrd` | file, for `save` |
 | `decimate` | 10 | log every Nth state: 10 = 100 Hz of plots |
+| `degrees` | false | joint angles and velocities in degrees (`--degrees` for `rerun_serial`, `rerun_degrees:=true` for the launch) |
 
 Decimation is about the Pi, not the viewer: each logged state is ~20 log calls.
 100 Hz is comfortable on a Pi 4. Set `decimate:=1` on a laptop, or on the Pi for

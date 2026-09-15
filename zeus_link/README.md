@@ -15,7 +15,7 @@ STM32 ◄──USB, 52 B @ 250 Hz── link_node ◄── /zeus/command  zeus_
 |---|---|---|
 | `link_node` | yes | Owns the port. Publishes state, forwards commands, logs link health and every change in safety state, estimator state, health bits and ODrive errors |
 | `gait_passthrough_node` | yes | Zero residual at 250 Hz. `enable:=false` (default) holds the board in IDLE; `enable:=true` walks the stored gait |
-| `link_check` | no | Reads the link and prints rate, loss and status once a second. First thing to run on a new Pi |
+| `link_check` | no | Reads the link and prints rate, loss, source (`ROBOT` or `LEG TEST`) and status once a second. First thing to run on a new Pi |
 | `fake_board` | no | A fake STM32 on a pty (Linux/macOS): 1 kHz packets, commands parsed, the firmware's arm/fault/re-arm rules. Run the whole stack with no robot |
 
 ```bash
