@@ -573,7 +573,7 @@
     <parent link="waist_pitch_motor" />
     <child link="waist_bracket" />
     <axis xyz="0.001916999999999997 0.9999980000000003 -1.299009727909195e-23" />
-    <limit lower="-3.1416" upper="3.1416" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="waist_bracket_to_waist_roll_motor" type="fixed">
     <origin xyz="0.04491158999999996 -0.04008617000000001 0.0010239099999999723" rpy="-3.141592653589793 -1.5707963267948966 0" />
@@ -585,7 +585,7 @@
     <parent link="waist_roll_motor" />
     <child link="torso" />
     <axis xyz="-0.9997410000000002 -4.400000000000014e-05 -0.022754000000000003" />
-    <limit lower="-3.1416" upper="3.1416" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="pelvis_to_left_hip_roll_motor" type="fixed">
     <origin xyz="0.040000001085488464 -0.7278662121194897 0.5737416327760736" rpy="-3.1188369550125974 0.0019164685987450895 4.3618083936912584e-05" />
@@ -602,42 +602,42 @@
     <parent link="right_hip_roll_motor" />
     <child link="right_hip_pitch_motor" />
     <axis xyz="-0.999741 -0.022754 4.4e-05" />
-    <limit lower="-3.1416" upper="3.1416" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="left_hip_roll" type="revolute">
     <origin xyz="-0.03987371999999695 -0.03601130000000332 0.06591298999999999" rpy="1.5707963267948966 -2.1684043449710084e-19 -1.5707963267948124" />
     <parent link="left_hip_roll_motor" />
     <child link="left_hip_pitch_motor" />
     <axis xyz="-0.999741 -0.022754 4.4e-05" />
-    <limit lower="-3.1416" upper="3.1416" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="left_hip_pitch" type="revolute">
     <origin xyz="0.07997929000000002 0.0016956900000000275 -0.06500337000000002" rpy="-1.5707963267948966 -0.0 -1.5707963267948966" />
     <parent link="left_hip_pitch_motor" />
     <child link="left_hip_spring" />
     <axis xyz="0.0019170000000000005 0.999998 6.776250025507247e-21" />
-    <limit lower="-3.1416" upper="3.1416" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="left_hip_pitch_spring" type="revolute">
     <origin xyz="1.9169999999988363e-05 0.00999998000000005 0.0" rpy="0.0 -0.0 0.0" />
     <parent link="left_hip_spring" />
     <child link="left_hip_holder" />
     <axis xyz="0.0019170000000000005 0.999998 6.776250025507247e-21" />
-    <limit lower="-0.2" upper="0.2" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="right_hip_pitch" type="revolute">
     <origin xyz="0.07997929000000002 0.0019448899999999726 0.06499639000000001" rpy="-1.5707963267948966 -0.0 -1.5707963267948966" />
     <parent link="right_hip_pitch_motor" />
     <child link="right_hip_spring" />
     <axis xyz="0.001917 0.999998 0" />
-    <limit lower="-3.1416" upper="3.1416" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="right_hip_pitch_spring" type="revolute">
     <origin xyz="-1.917000000005942e-05 -0.00999997999999998 0.0" rpy="0.0 -0.0 0.0" />
     <parent link="right_hip_spring" />
     <child link="right_hip_holder" />
     <axis xyz="0.001917 0.999998 0" />
-    <limit lower="-0.2" upper="0.2" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="right_hip_holder_to_right_thigh" type="fixed">
     <origin xyz="-0.0712559799999999 0.11713681000000001 -0.001674350000000011" rpy="-3.141592653589793 2.168404344971009e-19 3.469446951953615e-18" />
@@ -664,14 +664,14 @@
     <parent link="left_knee_motor" />
     <child link="left_knee_spring" />
     <axis xyz="0 -0.999998 0.001917" />
-    <limit lower="-3.1416" upper="3.1416" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="left_knee_pitch_spring" type="revolute">
     <origin xyz="0.0 -0.010000009999999974 1.9169999999135712e-05" rpy="3.141592653589793 -1.5707963267947795 0" />
     <parent link="left_knee_spring" />
     <child link="left_knee_holder" />
     <axis xyz="0.0019169999999999999 0.9999979999999999 0.0" />
-    <limit lower="-0.2" upper="0.2" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="left_knee_holder_to_left_knee_link" type="fixed">
     <origin xyz="-0.07432083 0.00814247999999992 -0.0018955700000000064" rpy="6.776263578034403e-21 -2.168404344971009e-19 -3.469446951953615e-18" />
@@ -688,14 +688,14 @@
     <parent link="right_knee_motor" />
     <child link="right_knee_spring" />
     <axis xyz="0 -0.999998 0.001917" />
-    <limit lower="-3.1416" upper="3.1416" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="right_knee_pitch_spring" type="revolute">
     <origin xyz="0.0 0.00999997999999998 -1.917000000002389e-05" rpy="6.932117640329194e-18 -1.5707963267948966 0" />
     <parent link="right_knee_spring" />
     <child link="right_knee_holder" />
     <axis xyz="0.001917 -0.999998 0" />
-    <limit lower="-0.2" upper="0.2" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="right_knee_link_to_right_shin" type="fixed">
     <origin xyz="-0.00881687000000003 -0.09401706999999995 0.00022942999999997938" rpy="3.141592653589793 6.776263578034403e-21 -3.469446951953614e-18" />
@@ -722,14 +722,14 @@
     <parent link="right_ankle_motor" />
     <child link="right_foot" />
     <axis xyz="-1.3427179832402326e-20 -0.001917 -0.999998" />
-    <limit lower="-3.1416" upper="3.1416" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <joint name="left_ankle_pitch" type="revolute">
     <origin xyz="-0.00089221000000002 0.03505565 0.03493286999999995" rpy="0.0 -6.776263578034401e-21 3.469446951953614e-18" />
     <parent link="left_ankle_motor" />
     <child link="left_foot" />
     <axis xyz="0 -0.001917 -0.999998" />
-    <limit lower="-3.1416" upper="3.1416" effort="25" velocity="20" />
+    <limit lower="-0.7854" upper="0.7854" effort="25" velocity="20" />
   </joint>
   <!-- imu_link: the IMU chip, axes as mounted (added by clean_urdf.py) -->
   <link name="imu_link" />

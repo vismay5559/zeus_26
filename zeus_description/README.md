@@ -53,8 +53,8 @@ ros2 launch zeus_description display.launch.py gui:=true    # laptop: sliders + 
 | | now | TODO |
 |---|---|---|
 | design | Fusion version with **hip roll as the parent** | the real robot has hip pitch first: re-export |
-| joint limits | ±π, springs ±0.2 rad | mechanical stops, spring travel |
+| joint limits | ±45° on every joint, springs included | real stops once known |
 | `imu_link` | centre of the electronics box's top face, axes = robot axes | the chip's real position and how it is rotated |
-| toe / heel | front and rear edge of each sole, mid-width | where each switch actually touches down |
+| toe / heel | front and rear edge of each sole, mid-width | switch positions not final yet |
 | spring order | motor joint first, spring second on each axis | confirm against the CAD |
 | `/joint_states` | carries the 10 motor joints only | the 4 spring joints need the encoder→joint order from the firmware, until then TF stops at each spring |

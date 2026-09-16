@@ -73,31 +73,30 @@ links:
 # output, then the spring deflection (spring: true). Their sum is the joint
 # angle the leg actually has.
 #
-# TODO: every limit below is a placeholder - replace with the mechanical stops
-# (and, for springs, the maximum deflection). The estimator does not use them;
-# simulation and training do.
+# Limits: +/-45 deg (0.7854 rad) on every joint for now, springs included.
+# The estimator does not use them; simulation and training do.
 # ---------------------------------------------------------------------------
 joint_defaults:
   effort: 25.0        # N m, placeholder
   velocity: 20.0      # rad/s, placeholder
 
 joints:
-  Waist-Pitch-Actuator_Revolute-62:     {name: waist_pitch,             kind: pitch, limit: [-3.1416, 3.1416]}
-  Waist-Roll-Actuator_Revolute-64:      {name: waist_roll,              kind: roll,  limit: [-3.1416, 3.1416]}
+  Waist-Pitch-Actuator_Revolute-62:     {name: waist_pitch,             kind: pitch, limit: [-0.7854, 0.7854]}
+  Waist-Roll-Actuator_Revolute-64:      {name: waist_roll,              kind: roll,  limit: [-0.7854, 0.7854]}
 
-  Hip-Roll-Actuator-Left_Revolute-68:   {name: left_hip_roll,           kind: roll,  limit: [-3.1416, 3.1416]}
-  complete_actuator_decoy_Revolute-69:  {name: left_hip_pitch,          kind: pitch, limit: [-3.1416, 3.1416]}
-  Hip-Spring-Left_Revolute-70:          {name: left_hip_pitch_spring,   kind: pitch, limit: [-0.2, 0.2], spring: true}
-  Knee-Actuator-Left-1_Revolute-77:     {name: left_knee_pitch,         kind: pitch, limit: [-3.1416, 3.1416]}
-  Spring-Right_Revolute-78:             {name: left_knee_pitch_spring,  kind: pitch, limit: [-0.2, 0.2], spring: true}
-  Actuator-Left_Revolute-88:            {name: left_ankle_pitch,        kind: pitch, limit: [-3.1416, 3.1416]}
+  Hip-Roll-Actuator-Left_Revolute-68:   {name: left_hip_roll,           kind: roll,  limit: [-0.7854, 0.7854]}
+  complete_actuator_decoy_Revolute-69:  {name: left_hip_pitch,          kind: pitch, limit: [-0.7854, 0.7854]}
+  Hip-Spring-Left_Revolute-70:          {name: left_hip_pitch_spring,   kind: pitch, limit: [-0.7854, 0.7854], spring: true}
+  Knee-Actuator-Left-1_Revolute-77:     {name: left_knee_pitch,         kind: pitch, limit: [-0.7854, 0.7854]}
+  Spring-Right_Revolute-78:             {name: left_knee_pitch_spring,  kind: pitch, limit: [-0.7854, 0.7854], spring: true}
+  Actuator-Left_Revolute-88:            {name: left_ankle_pitch,        kind: pitch, limit: [-0.7854, 0.7854]}
 
-  Hip-Roll-control-right_Revolute-67:   {name: right_hip_roll,          kind: roll,  limit: [-3.1416, 3.1416]}
-  complete_actuator_decoy-v7Mirror_Revolute-71: {name: right_hip_pitch, kind: pitch, limit: [-3.1416, 3.1416]}
-  Spring-Hip-Right_Revolute-72:         {name: right_hip_pitch_spring,  kind: pitch, limit: [-0.2, 0.2], spring: true}
-  Actuator-Knee-Right_Revolute-81:      {name: right_knee_pitch,        kind: pitch, limit: [-3.1416, 3.1416]}
-  Spring-Knee-left_Revolute-82:         {name: right_knee_pitch_spring, kind: pitch, limit: [-0.2, 0.2], spring: true}
-  Actuator-Right_Revolute-87:           {name: right_ankle_pitch,       kind: pitch, limit: [-3.1416, 3.1416]}
+  Hip-Roll-control-right_Revolute-67:   {name: right_hip_roll,          kind: roll,  limit: [-0.7854, 0.7854]}
+  complete_actuator_decoy-v7Mirror_Revolute-71: {name: right_hip_pitch, kind: pitch, limit: [-0.7854, 0.7854]}
+  Spring-Hip-Right_Revolute-72:         {name: right_hip_pitch_spring,  kind: pitch, limit: [-0.7854, 0.7854], spring: true}
+  Actuator-Knee-Right_Revolute-81:      {name: right_knee_pitch,        kind: pitch, limit: [-0.7854, 0.7854]}
+  Spring-Knee-left_Revolute-82:         {name: right_knee_pitch_spring, kind: pitch, limit: [-0.7854, 0.7854], spring: true}
+  Actuator-Right_Revolute-87:           {name: right_ankle_pitch,       kind: pitch, limit: [-0.7854, 0.7854]}
 
 # ---------------------------------------------------------------------------
 # The IMU. parent is the part it is bolted to; xyz is the chip's position and
@@ -112,8 +111,8 @@ imu:
 
 # ---------------------------------------------------------------------------
 # The four contact switches, one at the toe and one at the heel of each foot.
-# From --suggest: the sole's front and rear edge, mid-width. TODO: move each
-# to where its switch actually touches the ground.
+# From --suggest: the sole's front and rear edge, mid-width. The switch
+# positions are not final; move each here once they are.
 # ---------------------------------------------------------------------------
 contacts:
   left_toe:   {parent: left_foot,  xyz: [ 0.1068,  0.0815, -0.6347]}
