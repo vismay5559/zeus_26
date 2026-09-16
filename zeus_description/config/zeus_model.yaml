@@ -1,0 +1,122 @@
+# Everything about Zeus that the Fusion 360 export does not know, or gets
+# inconvenient. scripts/clean_urdf.py applies it to the raw export:
+#
+#     urdf/zeus_raw.urdf  +  this file  ->  urdf/zeus.urdf
+#
+# Never edit either URDF by hand. Change this file and re-run the script.
+#
+# Lengths in metres, angles in radians. Positions of added frames are in the
+# ROBOT's frame (X forward, Y left, Z up, origin at the hip centre) with every
+# joint at zero - measurable on the real robot, unlike Fusion's world frame.
+
+raw_urdf: urdf/zeus_raw.urdf
+output_urdf: urdf/zeus.urdf
+robot_name: zeus
+mesh_uri_prefix: package://zeus_description/meshes/
+
+# ---------------------------------------------------------------------------
+# The robot's frame, written in the export's axes. In this export the left
+# hip is at +X and the right at -X, so +X is left; up is +Z; a right-handed
+# frame then makes forward -Y. Not a choice - the only consistent one.
+# ---------------------------------------------------------------------------
+body_frame:
+  forward: -Y
+  left: +X
+  up: +Z
+  root_link: base_link
+  # origin: midway between the two hips, each hip being where its roll and
+  # pitch axes meet
+  origin_between:
+    - [left_hip_roll, left_hip_pitch]
+    - [right_hip_roll, right_hip_pitch]
+
+# ---------------------------------------------------------------------------
+# Links: export name -> name used everywhere else.
+# ---------------------------------------------------------------------------
+links:
+  Random-T: pelvis
+  Waist-Pitch-Actuator: waist_pitch_motor
+  waist: waist_bracket
+  Waist-Roll-Actuator: waist_roll_motor
+  base_link: torso                       # the electronics box
+  Hip-Roll-Actuator-Left: left_hip_roll_motor
+  complete_actuator_decoy: left_hip_pitch_motor
+  Hip-Spring-Left: left_hip_spring
+  holder_hip_2nd-1: left_hip_holder
+  Hip-Left: left_thigh
+  Knee-Actuator-Left-1: left_knee_motor
+  Spring-Right: left_knee_spring          # named Right in the export, sits in the left knee
+  holder_hip_2nd: left_knee_holder
+  knee_joint_2: left_knee_link
+  Shin-left: left_shin
+  Actuator-Left: left_ankle_motor
+  Foot-left: left_foot
+  Hip-Roll-control-right: right_hip_roll_motor
+  complete_actuator_decoy-v7Mirror: right_hip_pitch_motor
+  Spring-Hip-Right: right_hip_spring
+  holder_hip_2ndMirror: right_hip_holder
+  Hip-Right: right_thigh
+  Actuator-Knee-Right: right_knee_motor
+  Spring-Knee-left: right_knee_spring     # named left in the export, sits in the right knee
+  holder_hip_2nd-v6Mirror: right_knee_holder
+  knee_joint_2-v8Mirror: right_knee_link
+  Shin-Right: right_shin
+  Actuator-Right: right_ankle_motor
+  Foot-Right: right_foot
+
+# ---------------------------------------------------------------------------
+# Movable joints. kind decides the axis direction after clean-up:
+#   pitch -> +Y (left)      roll -> +X (forward)
+# on both legs, so a positive angle means the same motion left and right.
+#
+# The series-elastic hip pitch and knee are two joints on one axis: the motor
+# output, then the spring deflection (spring: true). Their sum is the joint
+# angle the leg actually has.
+#
+# TODO: every limit below is a placeholder - replace with the mechanical stops
+# (and, for springs, the maximum deflection). The estimator does not use them;
+# simulation and training do.
+# ---------------------------------------------------------------------------
+joint_defaults:
+  effort: 25.0        # N m, placeholder
+  velocity: 20.0      # rad/s, placeholder
+
+joints:
+  Waist-Pitch-Actuator_Revolute-62:     {name: waist_pitch,             kind: pitch, limit: [-3.1416, 3.1416]}
+  Waist-Roll-Actuator_Revolute-64:      {name: waist_roll,              kind: roll,  limit: [-3.1416, 3.1416]}
+
+  Hip-Roll-Actuator-Left_Revolute-68:   {name: left_hip_roll,           kind: roll,  limit: [-3.1416, 3.1416]}
+  complete_actuator_decoy_Revolute-69:  {name: left_hip_pitch,          kind: pitch, limit: [-3.1416, 3.1416]}
+  Hip-Spring-Left_Revolute-70:          {name: left_hip_pitch_spring,   kind: pitch, limit: [-0.2, 0.2], spring: true}
+  Knee-Actuator-Left-1_Revolute-77:     {name: left_knee_pitch,         kind: pitch, limit: [-3.1416, 3.1416]}
+  Spring-Right_Revolute-78:             {name: left_knee_pitch_spring,  kind: pitch, limit: [-0.2, 0.2], spring: true}
+  Actuator-Left_Revolute-88:            {name: left_ankle_pitch,        kind: pitch, limit: [-3.1416, 3.1416]}
+
+  Hip-Roll-control-right_Revolute-67:   {name: right_hip_roll,          kind: roll,  limit: [-3.1416, 3.1416]}
+  complete_actuator_decoy-v7Mirror_Revolute-71: {name: right_hip_pitch, kind: pitch, limit: [-3.1416, 3.1416]}
+  Spring-Hip-Right_Revolute-72:         {name: right_hip_pitch_spring,  kind: pitch, limit: [-0.2, 0.2], spring: true}
+  Actuator-Knee-Right_Revolute-81:      {name: right_knee_pitch,        kind: pitch, limit: [-3.1416, 3.1416]}
+  Spring-Knee-left_Revolute-82:         {name: right_knee_pitch_spring, kind: pitch, limit: [-0.2, 0.2], spring: true}
+  Actuator-Right_Revolute-87:           {name: right_ankle_pitch,       kind: pitch, limit: [-3.1416, 3.1416]}
+
+# ---------------------------------------------------------------------------
+# The IMU. parent is the part it is bolted to; xyz is the chip's position and
+# rpy its orientation relative to the robot's axes, at the zero pose.
+# rpy [0, 0, 0] means the chip's printed X points forward, Y left, Z up.
+# ---------------------------------------------------------------------------
+imu:
+  parent: torso
+  # centre of the box's top face, from --suggest. TODO: the chip's real spot
+  xyz: [-0.0306, -0.0066, 0.3300]
+  rpy: [0.0, 0.0, 0.0]
+
+# ---------------------------------------------------------------------------
+# The four contact switches, one at the toe and one at the heel of each foot.
+# From --suggest: the sole's front and rear edge, mid-width. TODO: move each
+# to where its switch actually touches the ground.
+# ---------------------------------------------------------------------------
+contacts:
+  left_toe:   {parent: left_foot,  xyz: [ 0.1068,  0.0815, -0.6347]}
+  left_heel:  {parent: left_foot,  xyz: [-0.1032,  0.0815, -0.6347]}
+  right_toe:  {parent: right_foot, xyz: [ 0.1068, -0.0705, -0.6337]}
+  right_heel: {parent: right_foot, xyz: [-0.1032, -0.0705, -0.6337]}

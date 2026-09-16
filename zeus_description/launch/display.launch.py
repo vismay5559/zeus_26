@@ -12,22 +12,24 @@ On the robot, do not use this - zeus_bringup's robot.launch.py runs
 robot_state_publisher against the real /joint_states from the STM32.
 """
 
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
-from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
     gui = LaunchConfiguration('gui')
 
-    robot_description = ParameterValue(
-        Command(['xacro ', PathJoinSubstitution(
-            [FindPackageShare('zeus_description'), 'urdf', 'zeus.urdf.xacro'])]),
-        value_type=str)
+    # Generated from the CAD export by zeus_description/scripts/clean_urdf.py.
+    urdf = os.path.join(get_package_share_directory('zeus_description'), 'urdf', 'zeus.urdf')
+    with open(urdf) as f:
+        robot_description = ParameterValue(f.read(), value_type=str)
 
     return LaunchDescription([
         DeclareLaunchArgument('gui', default_value='false',

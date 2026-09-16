@@ -12,7 +12,6 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
-  <exec_depend>xacro</exec_depend>
   <exec_depend>zeus_description</exec_depend>
   <exec_depend>zeus_link</exec_depend>
   <exec_depend>zeus_rerun</exec_depend>

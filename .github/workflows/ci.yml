@@ -19,11 +19,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pytest pyserial numpy rerun-sdk xacro
+      - run: pip install pytest pyserial numpy pyyaml rerun-sdk
       - name: zeus_link tests
         run: python -m pytest zeus_link/test -q
       - name: zeus_rerun tests
         run: python -m pytest zeus_rerun/test -q
+      - name: zeus_description tests (zeus.urdf matches the export + zeus_model.yaml)
+        run: python -m pytest zeus_description/test -q
 
   colcon:
     runs-on: ubuntu-24.04
@@ -57,7 +59,7 @@ jobs:
         run: |
           source /opt/ros/jazzy/setup.bash
           source install/setup.bash
-          xacro zeus_description/urdf/zeus.urdf.xacro > /tmp/zeus.urdf
+          check_urdf install/zeus_description/share/zeus_description/urdf/zeus.urdf
           ros2 launch zeus_bringup robot.launch.py --show-args
           ros2 launch zeus_bringup walk.launch.py --show-args
           ros2 launch zeus_description display.launch.py --show-args

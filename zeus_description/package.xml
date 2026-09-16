@@ -3,15 +3,19 @@
 <package format="3">
   <name>zeus_description</name>
   <version>1.0.0</version>
-  <description>Kinematic model of Zeus: the ten joints by name, the leg chain the estimator uses, placeholder geometry.</description>
+  <description>Model of Zeus from the Fusion 360 export: joints, springs, IMU and toe/heel contact frames, meshes.</description>
   <maintainer email="vismayshah121@gmail.com">vismay</maintainer>
   <license>BSD-3-Clause</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <exec_depend>xacro</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+
+  <test_depend>python3-numpy</test_depend>
+  <test_depend>python3-yaml</test_depend>
+  <test_depend>python3-pytest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

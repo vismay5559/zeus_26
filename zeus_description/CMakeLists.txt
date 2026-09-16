@@ -4,7 +4,7 @@ project(zeus_description)
 find_package(ament_cmake REQUIRED)
 
 install(
-  DIRECTORY launch urdf
+  DIRECTORY config launch meshes urdf
   DESTINATION share/${PROJECT_NAME}
 )
 

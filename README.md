@@ -118,7 +118,7 @@ zeus_26/
 ├── zeus_link/               the USB link: protocol, reader, link_node, passthrough, link_check
 ├── zeus_control_interface/  ← YOUR RL POLICY goes here (rl_policy_node.py)
 ├── zeus_rerun/              live plots and 3D in Rerun, from ROS or straight off serial
-├── zeus_description/        URDF: the 10 joints, the leg chain, placeholder geometry
+├── zeus_description/        URDF from the Fusion 360 export: joints, springs, IMU, toe/heel frames
 └── zeus_bringup/            robot.launch.py, walk.launch.py, link config, udev rule
 ```
 
