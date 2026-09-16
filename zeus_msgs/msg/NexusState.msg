@@ -75,7 +75,8 @@ float32[3] gyro                 # rad/s, body frame
 float32[3] vel_hdg              # m/s, heading frame: lateral, forward, vertical
 float32[10] joint_pos           # rad, output side
 float32[10] joint_vel           # rad/s, output side
-float32[4] spring_angle         # rad, SPRING DEFLECTION, not a joint angle
+float32[4] spring_angle         # rad, SPRING DEFLECTION, not a joint angle:
+                                # L hip pitch, L knee pitch, R hip pitch, R knee pitch
 float32[10] ref_angle           # rad, output side: stored gait at `phase`
 float32[4] contact              # 0.0 / 1.0, debounced, CONTACT_* order
 float32[2] foot_z               # m, world. [0] right, [1] left. NaN if invalid
