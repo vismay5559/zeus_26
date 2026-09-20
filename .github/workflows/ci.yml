@@ -86,7 +86,8 @@ jobs:
           import math
           from zeus_msgs.msg import NexusCommand, NexusState
           from zeus_link.convert import fill_state_msg, policy_block, STATE_FIELDS
-          from zeus_link.nexus_proto import NexusState as Packet
+          from zeus_link.nexus_proto import (BOLTED_JOINT_NAMES, NUM_JOINTS,
+                                             POLICY_COUNT, NexusState as Packet)
           from zeus_link.synthetic import state_packet
 
           pkt = Packet.parse(state_packet(seq=7))
@@ -94,12 +95,18 @@ jobs:
           fill_state_msg(msg, pkt)
           assert msg.seq == 7
           assert math.isnan(float(msg.foot_z[1]))
-          assert policy_block(msg).size == 52
+          assert policy_block(msg).size == POLICY_COUNT
           assert len(STATE_FIELDS) == len(NexusState.get_fields_and_field_types()) - 1
 
+          # The generated message class has to agree with the protocol about
+          # how many joints there are - the sizes are baked into it at build
+          # time, so a stale .msg shows up here and nowhere else.
+          assert len(msg.joint_pos) == NUM_JOINTS, len(msg.joint_pos)
+
           cmd = NexusCommand()
-          cmd.residual_rad = [0.0] * 10
+          cmd.residual_rad = [0.0] * NUM_JOINTS
           cmd.enable = True
-          print("real zeus_msgs classes accept convert.py output:",
-                len(STATE_FIELDS), "fields")
+          print(f"real zeus_msgs classes accept convert.py output: "
+                f"{len(STATE_FIELDS)} fields, {NUM_JOINTS} joints "
+                f"+ {len(BOLTED_JOINT_NAMES)} bolted, policy block {POLICY_COUNT}")
           EOF
