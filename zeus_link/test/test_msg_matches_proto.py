@@ -46,7 +46,7 @@ def test_state_field_types_match_the_wire_format():
     wire = {name: (_PY_TYPE[code], int(n or 1)) for name, (n, code) in zip(order, chunks)}
     for name, typ, count in convert.STATE_FIELDS:
         assert wire[name] == (typ, count), name
-    assert struct.calcsize(P.STATE_FORMAT) == 444
+    assert struct.calcsize(P.STATE_FORMAT) == 400
 
 
 def test_joint_constants_match_joint_names():
@@ -74,7 +74,7 @@ def test_other_constants_match_the_protocol():
 def test_command_msg():
     fields, _ = read_msg("NexusCommand")
     assert fields == [("std_msgs/Header", 1, "header"),
-                      ("float32", 10, "residual_rad"),
+                      ("float32", 8, "residual_rad"),
                       ("bool", 1, "enable")]
 
 

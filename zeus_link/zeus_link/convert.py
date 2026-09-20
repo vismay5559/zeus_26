@@ -8,7 +8,7 @@ Three things live here:
 
   fill_state_msg(msg, pkt)      NexusState packet -> zeus_msgs/NexusState
   residual_rad_to_turns(values) the one unit conversion on the command path
-  policy_block(state)           the 52-value observation, from a packet OR a msg
+  policy_block(state)           the 46-value observation, from a packet OR a msg
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from typing import Iterable, List, Sequence, Tuple
 
 import numpy as np
 
-from .nexus_proto import JOINT_NAMES, NUM_JOINTS, POLICY_FIELDS
+from .nexus_proto import BOLTED_JOINT_NAMES, JOINT_NAMES, NUM_JOINTS, POLICY_FIELDS
 
 TWO_PI = 2.0 * math.pi
 
@@ -133,7 +133,7 @@ def residual_rad_to_turns(values: Sequence[float]) -> Tuple[List[float], List[in
 
 def policy_block(state) -> np.ndarray:
     """
-    The 52-value observation block, as one float32 array.
+    The 46-value observation block, as one float32 array.
 
     Works on a zeus_msgs/NexusState or a nexus_proto.NexusState - they share
     field names - and returns the same order as the packet's policy block, so
@@ -157,12 +157,20 @@ def joint_state_arrays(state) -> Tuple[List[str], List[float], List[float], List
 
     From a packet or a message alike. Plain Python floats, which is what the
     unbounded float64[] fields of JointState accept.
+
+    The bolted joints come last, at zero. This build has no waist actuators, so
+    the packet says nothing about the waist - but robot_state_publisher needs
+    every joint in the URDF to place the parts above it, and leaving them out
+    breaks the model in half at the waist. Zero is not a guess here: the waist
+    is bolted at the pose the URDF calls zero. Effort is reported as zero too,
+    which is what an unpowered joint applies.
     """
+    n_bolted = len(BOLTED_JOINT_NAMES)
     return (
-        list(JOINT_NAMES),
-        [float(v) for v in state.joint_pos],
-        [float(v) for v in state.joint_vel],
-        [float(v) for v in state.act_torque],
+        list(JOINT_NAMES) + list(BOLTED_JOINT_NAMES),
+        [float(v) for v in state.joint_pos] + [0.0] * n_bolted,
+        [float(v) for v in state.joint_vel] + [0.0] * n_bolted,
+        [float(v) for v in state.act_torque] + [0.0] * n_bolted,
     )
 
 

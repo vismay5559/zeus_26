@@ -20,5 +20,5 @@
 
 std_msgs/Header header
 
-float32[10] residual_rad        # rad, added to NexusState.ref_angle
+float32[8] residual_rad         # rad, added to NexusState.ref_angle
 bool enable                     # false = stand down: idle the axes

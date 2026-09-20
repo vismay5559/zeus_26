@@ -87,11 +87,11 @@ def test_send_command_writes_one_valid_frame(monkeypatch):
     monkeypatch.setattr(nexus_link.serial, "Serial", lambda *a, **k: fake)
     link = nexus_link.NexusLink("fake")
     link._ser = fake                               # no reader thread needed
-    link.send_command([0.01] * 10, enable=True)
-    link.send_command([0.0] * 10, enable=False)
+    link.send_command([0.01] * P.NUM_JOINTS, enable=True)
+    link.send_command([0.0] * P.NUM_JOINTS, enable=False)
     assert len(written) == 2 * P.COMMAND_SIZE
     import struct
-    first = struct.unpack(P.COMMAND_FORMAT, bytes(written[:52]))
-    second = struct.unpack(P.COMMAND_FORMAT, bytes(written[52:]))
+    first = struct.unpack(P.COMMAND_FORMAT, bytes(written[:P.COMMAND_SIZE]))
+    second = struct.unpack(P.COMMAND_FORMAT, bytes(written[P.COMMAND_SIZE:]))
     assert first[3] == 0 and second[3] == 1        # seq advances per command
     assert first[-2] & P.CMD_ENABLE and not (second[-2] & P.CMD_ENABLE)

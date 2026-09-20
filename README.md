@@ -8,11 +8,11 @@ Raspberry Pi — which, by design, is not very much.
 ```
                 ┌──────────────────────────── STM32H7 (stm32_zeuss) ───────────────────────────┐
  BNO085 IMU ────┤                                                                              │
- 4 spring enc ──┤  1 kHz loop: sensors → state estimator → stored gait → safety → 10 ODrives   │
+ 4 spring enc ──┤  1 kHz loop: sensors → state estimator → stored gait → safety → 8 ODrives    │
  4 foot switch ─┤                                                                              │
  CAN × 2 ───────┤                                                                              │
                 └──────────────┬───────────────────────────────────────────────▲───────────────┘
-                   state, 444 B│ every 1 ms                    residual, 52 B  │ ~250 Hz
+                   state, 400 B│ every 1 ms                    residual, 44 B  │ ~250 Hz
                         USB OTG HS                                             │
                 ┌──────────────▼───────────────────── Raspberry Pi ────────────┴───────────────┐
                 │ zeus_link   link_node ──► /zeus/state ──► your RL policy ──► /zeus/command    │
@@ -57,7 +57,7 @@ that copy against the C header.
 | | STM32 → Pi | Pi → STM32 |
 |---|---|---|
 | **what** | state: estimate, joints, reference, sensors, health | residual per joint + enable flag |
-| **size** | 444 bytes | 52 bytes |
+| **size** | 400 bytes | 44 bytes |
 | **rate** | 1000 Hz | ~250 Hz (the STM32 interpolates between commands) |
 | **units** | SI, radians on the output shaft | turns on the wire, **radians in ROS** |
 
@@ -88,7 +88,7 @@ What the board does with commands — worth knowing before anything moves:
 ## Joint map
 
 Every per-joint array — `joint_pos`, `joint_vel`, `ref_angle`, `act_*`,
-`residual_rad` — uses this order. `index = bus × 5 + (node − 1)`.
+`residual_rad` — uses this order. `index = bus × 4 + (node − 1)`.
 
 | index | bus | node | joint |
 |---:|---:|---:|---|
@@ -96,16 +96,36 @@ Every per-joint array — `joint_pos`, `joint_vel`, `ref_angle`, `act_*`,
 | 1 | 0 | 2 | left_hip_roll |
 | 2 | 0 | 3 | left_knee_pitch |
 | 3 | 0 | 4 | left_ankle_pitch |
-| 4 | 0 | 5 | waist_roll |
-| 5 | 1 | 1 | right_hip_pitch |
-| 6 | 1 | 2 | right_hip_roll |
-| 7 | 1 | 3 | right_knee_pitch |
-| 8 | 1 | 4 | right_ankle_pitch |
-| 9 | 1 | 5 | waist_pitch |
+| 4 | 1 | 1 | right_hip_pitch |
+| 5 | 1 | 2 | right_hip_roll |
+| 6 | 1 | 3 | right_knee_pitch |
+| 7 | 1 | 4 | right_ankle_pitch |
 
 In code: `zeus_link.nexus_proto.JOINT_NAMES`, `JOINT_INDEX["right_knee_pitch"]`,
-or the `J_*` constants on `zeus_msgs/NexusState`. The URDF and `/joint_states`
-use the same names. The waist has no stored gait; its `ref_angle` reads 0.
+or the `J_*` constants on `zeus_msgs/NexusState`.
+
+### Two legs, no waist — a temporary build
+
+The robot has **ten** actuators: these eight plus waist roll (bus 0 node 5) and
+waist pitch (bus 1 node 5). This build is for bringing the two legs up without
+them, so the waist is **bolted at its zero pose** and node 5 on each bus is
+neither commanded nor expected.
+
+What that means around the workspace:
+
+- **Packets carry 8 joints.** The wire format changed with it, so the Pi and the
+  board must be flashed and updated together — protocol **v7**, and either side
+  rejects the other's version rather than misreading it.
+- **The URDF still has the waist joints**, because the robot still has the
+  parts. `/joint_states` carries `waist_pitch` and `waist_roll` at 0
+  (`BOLTED_JOINT_NAMES`), so `robot_state_publisher` can still place everything
+  above the waist. Leaving them out would break the model in half.
+- **The estimator still uses the waist** in its kinematics — the IMU is mounted
+  above it — and holds it at zero with a small variance for the play in a
+  bolted bracket.
+
+Putting the waist back: `git log` for the tag **`waist-10-actuators`**, the last
+commit with ten. The firmware side is listed in `link_proto.h`.
 
 ---
 
@@ -246,7 +266,7 @@ ROS, in three steps. Each step proves the one before it.
 | **USB user port** | **this link** — USB OTG HS, 480 Mbit/s. Plug it into the Pi |
 
 The board is a USB device and the Pi is the host. On the Pi it becomes a serial
-port, `/dev/ttyACM*`, USB ID `0483:5740`, carrying binary packets: 444 bytes of
+port, `/dev/ttyACM*`, USB ID `0483:5740`, carrying binary packets: 400 bytes of
 state every millisecond out, commands in.
 
 **Which firmware sends packets:** `NEXUS_MODE_ROBOT` always, and

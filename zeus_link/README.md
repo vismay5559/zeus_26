@@ -4,9 +4,13 @@ The Raspberry Pi's end of the USB link to the STM32. **The only package that
 opens the serial port** — everything else goes through its topics.
 
 ```
-STM32 ──USB, 444 B @ 1 kHz──► link_node ──► /zeus/state    zeus_msgs/NexusState
+STM32 ──USB, 400 B @ 1 kHz──► link_node ──► /zeus/state    zeus_msgs/NexusState
                                         ──► /joint_states  sensor_msgs/JointState
-STM32 ◄──USB, 52 B @ 250 Hz── link_node ◄── /zeus/command  zeus_msgs/NexusCommand
+STM32 ◄──USB, 44 B @ 250 Hz── link_node ◄── /zeus/command  zeus_msgs/NexusCommand
+
+Eight joints, not ten: this build has no waist actuators (protocol v7). See the
+joint map in the top-level README. `/joint_states` still carries the two bolted
+waist joints at 0 so the URDF model stays in one piece.
 ```
 
 ## Executables

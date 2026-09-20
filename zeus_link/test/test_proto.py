@@ -6,11 +6,11 @@ import struct
 from zeus_link import nexus_proto as P
 
 
-def test_sizes_and_version_match_firmware_v6():
-    # link_proto.h: nexus_state_t 444, nexus_cmd_t 52, NEXUS_PROTO_VERSION 6.
-    assert P.STATE_SIZE == 444
-    assert P.COMMAND_SIZE == 52
-    assert P.PROTO_VERSION == 6
+def test_sizes_and_version_match_firmware_v7():
+    # link_proto.h: nexus_state_t 400, nexus_cmd_t 44, NEXUS_PROTO_VERSION 7.
+    assert P.STATE_SIZE == 400
+    assert P.COMMAND_SIZE == 44
+    assert P.PROTO_VERSION == 7
 
 
 def test_crc_is_ccitt_false():
@@ -59,12 +59,12 @@ def test_finds_packets_across_junk_and_split_reads(packet_bytes):
 
 
 def test_command_packs_to_the_firmware_layout():
-    residual = [0.001 * i for i in range(10)]
+    residual = [0.001 * i for i in range(P.NUM_JOINTS)]
     raw = P.NexusCommand(seq=77, residual=residual, flags=P.CMD_ENABLE).pack()
-    assert len(raw) == 52
+    assert len(raw) == P.COMMAND_SIZE
     sync, msg_id, version, seq, *rest = struct.unpack(P.COMMAND_FORMAT, raw)
-    values, flags, crc = rest[:10], rest[10], rest[11]
-    assert (sync, msg_id, version, seq, flags) == (0xA5A5, P.MSG_COMMAND, 6, 77, 1)
+    values, flags, crc = rest[:P.NUM_JOINTS], rest[P.NUM_JOINTS], rest[P.NUM_JOINTS + 1]
+    assert (sync, msg_id, version, seq, flags) == (0xA5A5, P.MSG_COMMAND, P.PROTO_VERSION, 77, 1)
     assert crc == P.crc16(raw[:-2])
     assert all(abs(a - b) < 1e-7 for a, b in zip(values, residual))
 
@@ -72,7 +72,9 @@ def test_command_packs_to_the_firmware_layout():
 def test_joint_map_is_the_confirmed_wiring():
     assert P.JOINT_NAMES == (
         "left_hip_pitch", "left_hip_roll", "left_knee_pitch", "left_ankle_pitch",
-        "waist_roll",
         "right_hip_pitch", "right_hip_roll", "right_knee_pitch", "right_ankle_pitch",
-        "waist_pitch",
     )
+    # Two legs, no waist: the waist actuators are not in this build, and the
+    # two bolted joints are reported separately, not in the packet.
+    assert P.NUM_JOINTS == 8
+    assert P.BOLTED_JOINT_NAMES == ("waist_pitch", "waist_roll")

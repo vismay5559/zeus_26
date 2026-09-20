@@ -8,7 +8,7 @@ Linux and macOS only (it needs a pty).
 
 It streams byte-exact 444-byte state packets at 1 kHz - a smooth fake stride
 in joint_pos and ref_angle, the stride clock in phase - and parses every
-52-byte command that comes back, so everything between the USB port and your
+command packet that comes back, so everything between the USB port and your
 policy runs for real: link_node, the messages, QoS, the policy, rerun.
 
 It models the parts of the firmware's safety.c the Pi has to get right:
@@ -87,7 +87,7 @@ class FakeBoard:
 
     def _on_command(self, frame: bytes) -> None:
         f = struct.unpack(P.COMMAND_FORMAT, frame)
-        seq, residual, flags = f[3], f[4:14], f[14]
+        seq, residual, flags = f[3], f[4:4 + P.NUM_JOINTS], f[4 + P.NUM_JOINTS]
         s = self.stats
         if self._last_cmd_seq is not None and seq != (self._last_cmd_seq + 1) & 0xFFFFFFFF:
             s["seq_gaps"] += 1

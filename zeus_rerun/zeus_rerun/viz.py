@@ -9,8 +9,8 @@ WHAT IS LOGGED, AND WHERE (rerun groups plots by path)
 
   joints/<joint>        actual (joint_pos) vs reference (ref_angle), rad -
                         or degrees with degrees=True, like the leg test's plots
-  policy/residual       residual_rad the policy sent, all 10 joints   (ROS only)
-  velocity, torque      all 10 joints each
+  policy/residual       residual_rad the policy sent, every joint      (ROS only)
+  velocity, torque      every joint
   estimator/*           pelvis_z, vel_hdg, fused_valid
   imu/gyro, imu/accel   raw BNO085
   contacts, feet        foot switches, foot heights
