@@ -57,6 +57,7 @@ STATE_FIELDS: Tuple[Tuple[str, str, int], ...] = (
     ("act_error", "uint32", NUM_JOINTS),
     ("act_state", "uint8", NUM_JOINTS),
     ("act_flags", "uint8", NUM_JOINTS),
+    ("act_target", "float32", NUM_JOINTS),
     ("fused_pos", "float32", 3),
     ("fused_vel", "float32", 3),
     ("fused_gyro_bias", "float32", 3),
@@ -75,6 +76,7 @@ STATE_FIELDS: Tuple[Tuple[str, str, int], ...] = (
     ("health", "uint8", 1),
     ("fk_valid", "uint8", 1),
     ("safety_state", "uint8", 1),
+    ("gains_seq", "uint8", 1),
 )
 
 _NUMPY = {

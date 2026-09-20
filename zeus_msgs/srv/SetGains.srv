@@ -1,0 +1,26 @@
+# Replace the gains the STM32 writes to the ODrives.
+#
+# Between runs only: the board REFUSES a change while it is driving, because a
+# velocity gain changing under load is a step change in torque with a leg's
+# weight behind it. Stand down first (/zeus/stand_down).
+#
+# The board re-sends these to every drive on each arm, so a drive that reboots
+# comes back with the gains being tuned rather than its own saved ones. They
+# are NOT written to the drives' non-volatile memory: power-cycle the board and
+# it goes back to the table in its robot_config.c. When a value is settled, put
+# it there.
+#
+# Joint order is the J_* order in NexusState.msg. A NEGATIVE value means "leave
+# that drive's own saved value alone".
+#
+# Units are the ODrive's own:
+#   pos_gain              (turn/s) per turn of error
+#   vel_gain              Nm per (turn/s) of error
+#   vel_integrator_gain   Nm per turn of accumulated error
+
+float32[8] pos_gain
+float32[8] vel_gain
+float32[8] vel_integrator_gain
+---
+bool applied            # false = the board refused them, see message
+string message

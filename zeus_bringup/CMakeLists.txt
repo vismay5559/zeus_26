@@ -8,4 +8,11 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+# `ros2 run zeus_bringup zeus check`, or put lib/zeus_bringup on PATH and just
+# `zeus check`.
+install(
+  PROGRAMS scripts/zeus
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

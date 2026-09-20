@@ -1,0 +1,33 @@
+# Drive gains, one set per joint, in the J_* order of NexusState.msg.
+#
+#   zeus gains show                              what is here, and what the board took
+#   zeus gains push                              send these to the board
+#   zeus gains set left_knee_pitch --vel 1.0     change one and send it
+#
+# These reach the ODrives through the STM32 (it is the only thing on the CAN
+# bus) and only while the robot is standing down. The board re-sends them on
+# every arm, so a drive that reboots comes back with them - but it does NOT
+# save them. Power-cycle the board and it goes back to the table in
+# Appli/App/robot_config.c. When a value is settled, put it there too.
+#
+# Units are the ODrive's own:
+#   pos       (turn/s) per turn of error
+#   vel       Nm per (turn/s) of error
+#   vel_int   Nm per turn of accumulated error
+#
+# A NEGATIVE value means "leave that drive's own saved value alone", which is
+# how a joint is taken out of the loop while its neighbour is being tuned.
+#
+# These start as the firmware's defaults: the bench leg's tuned hip and knee
+# numbers, the 9:1 ankle's much smaller velocity gain, and hip roll guessed.
+# NONE OF THEM HAVE BEEN TUNED ON THE ROBOT.
+
+joints:
+  left_hip_pitch:    {pos: 30.0, vel: 10.0, vel_int: 50.0}
+  left_hip_roll:     {pos: 30.0, vel: 10.0, vel_int: 50.0}
+  left_knee_pitch:   {pos: 30.0, vel: 10.0, vel_int: 50.0}
+  left_ankle_pitch:  {pos: 17.0, vel: 0.3,  vel_int: 1.5}
+  right_hip_pitch:   {pos: 30.0, vel: 10.0, vel_int: 50.0}
+  right_hip_roll:    {pos: 30.0, vel: 10.0, vel_int: 50.0}
+  right_knee_pitch:  {pos: 30.0, vel: 10.0, vel_int: 50.0}
+  right_ankle_pitch: {pos: 17.0, vel: 0.3,  vel_int: 1.5}

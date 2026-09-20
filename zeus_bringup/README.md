@@ -27,10 +27,31 @@ ros2 launch zeus_bringup walk.launch.py policy:=rl enable:=true  # RL policy
 | `policy` | `passthrough` | `walk.launch.py`: `passthrough` or `rl` |
 | `enable` | `false` | `walk.launch.py` |
 
+## The `zeus` command
+
+`scripts/zeus`, installed as `ros2 run zeus_bringup zeus`. Everything it does
+needs a launch already running in another terminal; it never starts one.
+
+| | |
+|---|---|
+| `zeus check` | pre-flight: board rate, every drive, IMU, spring encoders, foot switches, estimator. Exits non-zero if anything is wrong. Sends nothing |
+| `zeus stop` | `/zeus/stand_down`: the drives idle, the stack keeps running |
+| `zeus record NAME` | save a run (`~/zeus_runs/NAME.npz`) while the robot moves |
+| `zeus tune NAME` | per-joint tracking metrics and which gain to change |
+| `zeus tune --compare` | every recorded run, side by side |
+| `zeus gains show` | the gains in `~/.zeus/gains.yaml`, and what the board took |
+| `zeus gains push` | send them to the board (`/zeus/set_gains`) |
+| `zeus gains set JOINT --vel X --pos Y --vel-int Z` | change one and send it |
+
+`ZEUS_RUNS` and `ZEUS_GAINS` move the run directory and the gains file. The
+tuning maths itself is `zeus_link.tuning`, so it is unit-tested rather than
+living in a script.
+
 ## Config
 
 | | |
 |---|---|
+| `config/gains.yaml` | starting drive gains, copied to `~/.zeus/gains.yaml` on first use |
 | `config/link.yaml` | `link_node` parameters |
 | `config/99-zeus-stm32.rules` | udev: `/dev/zeus_stm32`, `dialout` access, ModemManager kept off the port. Install steps are in the file |
 | `config/fastdds_shm.xml` | shared-memory-only transport, for `shm_only:=true` |

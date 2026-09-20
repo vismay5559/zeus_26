@@ -47,6 +47,7 @@ Usually started by `zeus_bringup` instead.
 |---|---|
 | `/zeus/stand_down` | Latch: every command is forwarded with `enable` false, and one is sent immediately. The board idles its drives but the link stays healthy, so it does not fault |
 | `/zeus/resume` | Release the latch |
+| `/zeus/set_gains` | Write drive gains to the board (`zeus_msgs/SetGains`). It sends them, then watches `gains_seq` in the state packets for the board's echo - no echo inside 500 ms means refused, which is what happens while the robot is driving. `zeus gains push` is the friendly way to call it |
 
 **What it logs**, so a bring-up session reads like a story:
 
@@ -88,10 +89,11 @@ Usable from a policy, a notebook or a test, with or without ROS.
 | `qos` | `STATE_QOS`, `COMMAND_QOS` — use these |
 | `odrive_names` | `error_names(0x200)` → `['DC_BUS_UNDER_VOLTAGE']`, `axis_state_name(8)` |
 | `synthetic` | `state_packet(seq=…)`: a CRC-valid packet, for testing without a robot |
+| `tuning` | `analyse(seq, act_target, joint_pos, act_torque)` and `advise(metrics)`: what a recorded run says about a drive's gains. Behind `zeus tune`, and unit-tested against traces whose answer is known |
 
 ```python
 from zeus_link.convert import policy_block
-obs = policy_block(msg)          # np.float32, 52 values, packet order, raw SI
+obs = policy_block(msg)          # np.float32, 46 values, packet order, raw SI
 ```
 
 ## Keeping the protocol in step

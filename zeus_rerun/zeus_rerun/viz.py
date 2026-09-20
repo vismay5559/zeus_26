@@ -9,6 +9,8 @@ WHAT IS LOGGED, AND WHERE (rerun groups plots by path)
 
   joints/<joint>        actual (joint_pos) vs reference (ref_angle), rad -
                         or degrees with degrees=True, like the leg test's plots
+  joints/<name>         actual, commanded (what the drive was told), reference
+  tracking              commanded - actual, per joint: the tuning signal
   policy/residual       residual_rad the policy sent, every joint      (ROS only)
   velocity, torque      every joint
   estimator/*           pelvis_z, vel_hdg, fused_valid
@@ -58,6 +60,7 @@ LEFT = [80, 140, 220]
 RIGHT = [220, 120, 60]
 WAIST = [170, 110, 200]
 GREY = [150, 150, 150]
+COMMANDED = [240, 200, 60]      # what the drive was actually told
 AXES = [[230, 80, 80], [80, 200, 90], [80, 130, 230]]
 
 # Hip offset from robot_config.h, used only to place the feet sideways in 3D.
@@ -86,6 +89,7 @@ def blueprint() -> "rrb.Blueprint":
     )
     drives = rrb.Grid(
         rrb.TimeSeriesView(origin="policy", name="policy residual"),
+        rrb.TimeSeriesView(origin="tracking", name="commanded - actual"),
         rrb.TimeSeriesView(origin="torque", name="torque"),
         rrb.TimeSeriesView(origin="velocity", name="velocity"),
         rrb.TimeSeriesView(origin="status", name="status"),
@@ -130,12 +134,19 @@ def open_sink(mode: str, host: str = "", port: int = VIEWER_PORT,
 
 def log_styles() -> None:
     """Names and colours, logged once as static data - not part of the timeline."""
+    # Three lines per joint, and the middle one is the point of the plot:
+    #   actual      where the joint went
+    #   commanded   what the drive was TOLD - reference + the policy's residual,
+    #               after the safety envelope, the slew limit and the
+    #               interpolator. Tuning is the gap between this and actual.
+    #   reference   the stored gait alone, for context
     for n in JOINT_NAMES:
-        rr.log(f"joints/{n}", rr.SeriesLines(colors=[_joint_colour(n), GREY],
-                                             names=["actual", "reference"]), static=True)
+        rr.log(f"joints/{n}",
+               rr.SeriesLines(colors=[_joint_colour(n), COMMANDED, GREY],
+                              names=["actual", "commanded", "reference"]), static=True)
 
     per_joint = dict(colors=[_joint_colour(n) for n in JOINT_NAMES], names=list(JOINT_NAMES))
-    for path in ("policy/residual", "torque", "velocity"):
+    for path in ("policy/residual", "torque", "velocity", "tracking"):
         rr.log(path, rr.SeriesLines(**per_joint), static=True)
 
     rr.log("estimator/vel_hdg", rr.SeriesLines(names=["lateral", "forward", "vertical"]),
@@ -172,8 +183,13 @@ def log_state(s, degrees: bool = False) -> None:
 
     pos = [v * k for v in _f(s.joint_pos)]
     ref = [v * k for v in _f(s.ref_angle)]
+    # NaN while nothing is being driven, which rerun draws as a gap - a held
+    # value would look like a command the joint is ignoring.
+    cmd = [v * k for v in _f(s.act_target)]
     for i, n in enumerate(JOINT_NAMES):
-        rr.log(f"joints/{n}", rr.Scalars([pos[i], ref[i]]))
+        rr.log(f"joints/{n}", rr.Scalars([pos[i], cmd[i], ref[i]]))
+
+    rr.log("tracking", rr.Scalars([c - p for c, p in zip(cmd, pos)]))
 
     rr.log("velocity", rr.Scalars([v * k for v in _f(s.joint_vel)]))
     rr.log("torque", rr.Scalars(_f(s.act_torque)))

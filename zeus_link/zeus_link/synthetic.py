@@ -36,6 +36,7 @@ def state_values(seq=1234, **over):
         "imu_gyro": [0.01, 0.02, 0.03],
         "imu_seq": 42,
         "act_torque": [0.5 * i for i in range(P.NUM_JOINTS)],
+        "act_target": [0.11 * (i + 1) for i in range(P.NUM_JOINTS)],
         "act_error": [0, 0, 0x200, 0, 0, 0, 0, 0x08000200],
         "fused_pos": [1.0, 2.0, 0.81],
         "fused_vel": [0.3, 0.1, 0.0],
@@ -58,6 +59,8 @@ def state_values(seq=1234, **over):
         "health": P.HEALTH_LINK,
         "fk_valid": P.FK_RIGHT_VALID,
         "safety_state": P.SAFETY_IDLE,
+        "gains_seq": 3,
+        "reserved1": 0,
     }
     v.update(over)
     return v
@@ -69,10 +72,12 @@ def pack_state(values):
         "seq", "timestamp_us", "pelvis_z", "quat", "gyro", "vel_hdg", "joint_pos",
         "joint_vel", "spring_angle", "ref_angle", "contact", "foot_z", "phase",
         "imu_quat", "imu_accel", "imu_gyro", "imu_seq", "act_torque", "act_error",
+        "act_target",
         "fused_pos", "fused_vel", "fused_gyro_bias", "fused_accel_bias", "overruns",
         "usb_dropped", "can_dropped", "loop_us_max", "enc_stalls", "can_bus_off",
         "stream_flags", "reserved0", "contact_ticks", "act_state", "act_flags",
         "enc_valid", "contacts", "fused_valid", "health", "fk_valid", "safety_state",
+        "gains_seq", "reserved1",
     ):
         x = values[name]
         flat.extend(x if isinstance(x, list) else [x])

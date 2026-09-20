@@ -65,9 +65,12 @@ class FakeBoard:
         self.lock = threading.Lock()
         self.t0 = time.monotonic()
         self.safety = P.SAFETY_BOOT
+        self.gains_seq = 0
         self.needs_rearm = False
         self.last_cmd = None
+        self.gains = None
         self.stats = dict(commands=0, crc_bad=0, seq_gaps=0, enables=0, disables=0,
+                          gains=0, gains_refused=0,
                           rejected=0, packets_sent=0)
         self.events = []
         self._last_cmd_seq = None
@@ -119,6 +122,21 @@ class FakeBoard:
         self._accepted_seq = seq
         self._set(P.SAFETY_ARMED, "enable true")
 
+    def _on_gains(self, frame: bytes) -> None:
+        """Gains land only between runs, exactly as the board treats them."""
+        f = struct.unpack(P.GAINS_FORMAT, frame)
+        seq = f[3]
+        self.stats["gains"] += 1
+
+        if self.safety == P.SAFETY_ARMED:
+            self.stats["gains_refused"] += 1
+            return
+
+        self.gains = dict(pos=f[4:4 + P.NUM_JOINTS],
+                          vel=f[4 + P.NUM_JOINTS:4 + 2 * P.NUM_JOINTS],
+                          vel_int=f[4 + 2 * P.NUM_JOINTS:4 + 3 * P.NUM_JOINTS])
+        self.gains_seq = seq & 0xFF
+
     # ---- threads --------------------------------------------------------------
 
     def _reader(self) -> None:
@@ -133,18 +151,29 @@ class FakeBoard:
                 if i < 0:
                     del buf[:-1]
                     break
-                if len(buf) - i < P.COMMAND_SIZE:
+                if len(buf) - i < 3:
                     del buf[:i]
                     break
-                frame = bytes(buf[i:i + P.COMMAND_SIZE])
-                if frame[2] != P.MSG_COMMAND or P.crc16(frame[:-2]) != \
-                        struct.unpack_from("<H", frame, P.COMMAND_SIZE - 2)[0]:
+                # Two message types, two lengths - the real board decides the
+                # same way, from the id in the third byte.
+                size = {P.MSG_COMMAND: P.COMMAND_SIZE, P.MSG_GAINS: P.GAINS_SIZE}.get(buf[i + 2])
+                if size is None:
+                    del buf[:i + 1]
+                    continue
+                if len(buf) - i < size:
+                    del buf[:i]
+                    break
+                frame = bytes(buf[i:i + size])
+                if P.crc16(frame[:-2]) != struct.unpack_from("<H", frame, size - 2)[0]:
                     self.stats["crc_bad"] += 1
                     del buf[:i + 1]
                     continue
-                del buf[:i + P.COMMAND_SIZE]
+                del buf[:i + size]
                 with self.lock:
-                    self._on_command(frame)
+                    if frame[2] == P.MSG_COMMAND:
+                        self._on_command(frame)
+                    else:
+                        self._on_gains(frame)
 
     def run(self, duration: float) -> None:
         threading.Thread(target=self._reader, daemon=True).start()
@@ -170,6 +199,12 @@ class FakeBoard:
                 ref_angle=[0.2 * math.sin(w + j + 0.05) for j in range(P.NUM_JOINTS)],
                 health=0 if link_ok else P.HEALTH_LINK, safety_state=safety,
                 act_state=[8 if safety == P.SAFETY_ARMED else 1] * P.NUM_JOINTS,
+                # What the drives were told: the reference the board is playing
+                # while armed, and NaN while nothing is being driven.
+                act_target=([0.2 * math.sin(w + j + 0.05) for j in range(P.NUM_JOINTS)]
+                            if safety == P.SAFETY_ARMED
+                            else [float("nan")] * P.NUM_JOINTS),
+                gains_seq=self.gains_seq,
                 act_error=errors))
             try:
                 os.write(self.master, pkt)

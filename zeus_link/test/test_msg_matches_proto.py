@@ -23,8 +23,9 @@ def test_msg_fields_are_exactly_state_fields():
 
 
 def test_state_fields_cover_the_dataclass():
-    # reserved0 is packet padding, deliberately not published.
-    dc = [f.name for f in dataclasses.fields(P.NexusState) if f.name != "reserved0"]
+    # reserved0 and reserved1 are packet padding, deliberately not published.
+    pad = {"reserved0", "reserved1"}
+    dc = [f.name for f in dataclasses.fields(P.NexusState) if f.name not in pad]
     assert sorted(dc) == sorted(n for n, _, _ in convert.STATE_FIELDS)
 
 
@@ -34,11 +35,12 @@ def test_state_field_types_match_the_wire_format():
         "sync", "msg_id", "version", "seq", "timestamp_us", "pelvis_z", "quat", "gyro",
         "vel_hdg", "joint_pos", "joint_vel", "spring_angle", "ref_angle", "contact",
         "foot_z", "phase", "imu_quat", "imu_accel", "imu_gyro", "imu_seq", "act_torque",
-        "act_error", "fused_pos", "fused_vel", "fused_gyro_bias", "fused_accel_bias",
+        "act_error", "act_target", "fused_pos", "fused_vel", "fused_gyro_bias",
+        "fused_accel_bias",
         "overruns", "usb_dropped", "can_dropped", "loop_us_max", "enc_stalls",
         "can_bus_off", "stream_flags", "reserved0", "contact_ticks", "act_state",
         "act_flags", "enc_valid", "contacts", "fused_valid", "health", "fk_valid",
-        "safety_state", "crc",
+        "safety_state", "gains_seq", "reserved1", "crc",
     ]
     import re
     chunks = re.findall(r"(\d*)([fIHB])", P.STATE_FORMAT)
@@ -46,7 +48,7 @@ def test_state_field_types_match_the_wire_format():
     wire = {name: (_PY_TYPE[code], int(n or 1)) for name, (n, code) in zip(order, chunks)}
     for name, typ, count in convert.STATE_FIELDS:
         assert wire[name] == (typ, count), name
-    assert struct.calcsize(P.STATE_FORMAT) == 400
+    assert struct.calcsize(P.STATE_FORMAT) == 434
 
 
 def test_joint_constants_match_joint_names():

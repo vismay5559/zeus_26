@@ -1,0 +1,487 @@
+#!/usr/bin/env python3
+"""
+The robot, from one command.
+
+    zeus check                 is everything healthy enough to move?
+    zeus stop                  stand down now: the drives go limp
+    zeus gains show            the gains in the file, and what the board took
+    zeus gains push            send the file's gains to the board
+    zeus gains set left_knee_pitch --vel 1.0 --vel-int 5.0
+    zeus record NAME           record a run while it walks
+    zeus tune NAME             what that run says about the gains
+    zeus tune --compare        every recorded run, side by side
+
+`check`, `stop`, `gains` and `record` talk to a running stack, so start that
+first in another window:
+
+    ros2 launch zeus_bringup robot.launch.py            # link only, nothing moves
+    ros2 launch zeus_bringup walk.launch.py enable:=true
+
+`tune` reads what `record` wrote and needs nothing running.
+
+Runs live in ~/zeus_runs (ZEUS_RUNS to move them). Gains live in
+zeus_bringup/config/gains.yaml (ZEUS_GAINS), which is the file to commit when a
+value is settled - and then, eventually, robot_config.c on the board, which is
+what it arms with after a power cycle.
+"""
+
+from __future__ import annotations
+
+import argparse
+import math
+import os
+import sys
+import time
+from pathlib import Path
+
+RUNS = Path(os.environ.get("ZEUS_RUNS", Path.home() / "zeus_runs"))
+GAINS_ENV = os.environ.get("ZEUS_GAINS")
+
+# What a healthy robot looks like, for `check`.
+MIN_RATE_HZ = 900.0          # the board sends at 1 kHz
+MAX_LOOP_US = 900            # of a 1000 us budget
+STILL_GYRO = 0.05            # rad/s, standing still
+GRAVITY = 9.81
+GRAVITY_TOL = 0.5            # m/s^2 away from g while still
+
+
+# ---------------------------------------------------------------- helpers
+
+def die(msg: str, code: int = 1):
+    print(f"zeus: {msg}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def gains_path() -> Path:
+    """
+    The gains file this robot is being tuned with.
+
+    Not the one inside the package: that is the starting point, and it lives in
+    an install directory that a rebuild overwrites. The working copy is
+    ~/.zeus/gains.yaml, seeded from the package the first time it is needed, so
+    a tuning session survives a rebuild - and when a value is settled it gets
+    copied into the firmware's robot_config.c, which is what the board arms
+    with anyway.
+    """
+    if GAINS_ENV:
+        return Path(GAINS_ENV)
+
+    mine = Path.home() / ".zeus" / "gains.yaml"
+    if not mine.exists():
+        from ament_index_python.packages import get_package_share_directory
+        default = Path(get_package_share_directory("zeus_bringup")) / "config" / "gains.yaml"
+        mine.parent.mkdir(parents=True, exist_ok=True)
+        mine.write_text(default.read_text())
+        print(f"started {mine} from the package defaults")
+    return mine
+
+
+def load_gains(path: Path):
+    import yaml
+    from zeus_link.nexus_proto import JOINT_NAMES
+
+    if not path.exists():
+        die(f"no gains file at {path}")
+    doc = yaml.safe_load(path.read_text()) or {}
+    joints = doc.get("joints", {})
+    missing = [n for n in JOINT_NAMES if n not in joints]
+    if missing:
+        die(f"{path}: no gains for {', '.join(missing)}")
+    return doc, joints
+
+
+def gain_columns(joints):
+    from zeus_link.nexus_proto import JOINT_NAMES
+    return ([float(joints[n]["pos"]) for n in JOINT_NAMES],
+            [float(joints[n]["vel"]) for n in JOINT_NAMES],
+            [float(joints[n]["vel_int"]) for n in JOINT_NAMES])
+
+
+class Ros:
+    """One node, started only for the subcommands that need it."""
+
+    def __init__(self, name="zeus_cli"):
+        import rclpy
+        self.rclpy = rclpy
+        rclpy.init()
+        self.node = rclpy.create_node(name)
+
+    def collect_states(self, seconds: float, quiet: bool = False, deep: bool = False):
+        """
+        Every NexusState this process manages to see in `seconds`.
+
+        BEST_EFFORT, because that is what /zeus/state is published as and a
+        RELIABLE subscriber on it receives nothing at all while saying nothing
+        about why. The shared profile keeps only the newest sample, which is
+        right for a viewer and wrong for a recording: at 1 kHz a spin loop
+        would sample it a few dozen times a second and quietly throw the rest
+        away. `deep` asks for a deeper queue and spins as fast as it can, so a
+        recording keeps most of the ticks rather than a thin sample of them.
+        """
+        from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+        from zeus_link.qos import STATE_QOS
+        from zeus_msgs.msg import NexusState
+
+        qos = STATE_QOS
+        if deep:
+            qos = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=2000,
+                             reliability=ReliabilityPolicy.BEST_EFFORT)
+
+        got = []
+        shown = 0
+        sub = self.node.create_subscription(NexusState, "/zeus/state", got.append, qos)
+        start = time.monotonic()
+        end = start + seconds
+        while time.monotonic() < end:
+            self.rclpy.spin_once(self.node, timeout_sec=0.0 if deep else 0.05)
+            if deep and not got:
+                time.sleep(0.001)
+            if not quiet and got and len(got) // 500 != shown:
+                shown = len(got) // 500
+                print(f"\r  {len(got)} packets", end="", flush=True)
+        self.node.destroy_subscription(sub)
+        if not quiet:
+            print("\r", end="")
+        self.elapsed = time.monotonic() - start
+        return got
+
+    def call(self, srv_type, name: str, req, timeout: float = 3.0):
+        cli = self.node.create_client(srv_type, name)
+        if not cli.wait_for_service(timeout_sec=timeout):
+            die(f"no service {name} - is the stack running?")
+        fut = cli.call_async(req)
+        self.rclpy.spin_until_future_complete(self.node, fut, timeout_sec=timeout)
+        if not fut.done():
+            die(f"{name} did not answer")
+        return fut.result()
+
+    def close(self):
+        self.node.destroy_node()
+        self.rclpy.shutdown()
+
+
+# ---------------------------------------------------------------- check
+
+def cmd_check(args) -> int:
+    from zeus_link.nexus_proto import (CONTACT_NAMES, HEALTH_NAMES, JOINT_NAMES,
+                                       SAFETY_NAMES)
+    from zeus_link.odrive_names import axis_state_name
+
+    ros = Ros()
+    print(f"listening for {args.seconds:.0f} s of /zeus/state ...")
+    states = ros.collect_states(args.seconds)
+    ros.close()
+
+    if not states:
+        die("no /zeus/state - start the stack:\n"
+            "    ros2 launch zeus_bringup robot.launch.py")
+
+    first, last = states[0], states[-1]
+
+    # The BOARD's tick rate, from its own counter against the clock here - not
+    # how many packets this process managed to pick up, which is a property of
+    # this process. Ticks missed between two received packets are the board's
+    # business (`overruns`), not the link's.
+    rate = (last.seq - first.seq) / ros.elapsed if ros.elapsed > 0 else 0.0
+    seen = 100.0 * len(states) / max(last.seq - first.seq, 1)
+    fails, warns = [], []
+
+    def check(ok, good, bad, warn_only=False):
+        print(f"  {'ok  ' if ok else 'FAIL'}  {good if ok else bad}")
+        if not ok:
+            (warns if warn_only else fails).append(bad)
+
+    print("\nlink")
+    check(rate >= MIN_RATE_HZ, f"the board is ticking at {rate:.0f} Hz",
+          f"the board is ticking at only {rate:.0f} Hz, expected 1000")
+    print(f"  --    this check saw {seen:.0f}% of those ticks (normal: a viewer "
+          "gets the newest, not every one)")
+    check(last.loop_us_max <= MAX_LOOP_US,
+          f"worst control cycle {last.loop_us_max} us",
+          f"worst control cycle {last.loop_us_max} us, of a 1000 us budget")
+    overruns = last.overruns - first.overruns
+    check(overruns == 0, "no missed ticks", f"{overruns} missed ticks while watching")
+
+    print("\ndrives")
+    for j, name in enumerate(JOINT_NAMES):
+        err = last.act_error[j]
+        fresh = last.act_flags[j] & 0x01
+        state = axis_state_name(last.act_state[j])
+        ok = (err == 0) and fresh
+        check(ok, f"{name:18s} {state}, no errors",
+              f"{name:18s} {state}" + (f", error 0x{err:08X}" if err else ", not reporting"))
+
+    print("\nsensors")
+    gyro = max(abs(v) for v in last.imu_gyro)
+    accel = math.sqrt(sum(v * v for v in last.imu_accel))
+    imu_moving = last.imu_seq - first.imu_seq
+    check(imu_moving > 0, f"IMU streaming ({imu_moving} reports)", "the IMU is not reporting")
+    check(abs(accel - GRAVITY) < GRAVITY_TOL,
+          f"accelerometer reads {accel:.2f} m/s^2",
+          f"accelerometer reads {accel:.2f} m/s^2, expected about {GRAVITY}",
+          warn_only=True)
+    check(gyro < STILL_GYRO, f"gyro quiet ({gyro:.3f} rad/s)",
+          f"gyro reads {gyro:.3f} rad/s - is the robot moving?", warn_only=True)
+    check(last.enc_valid == 0x0F, "all four spring encoders reading",
+          f"spring encoders reading: 0x{last.enc_valid:X} of 0xF")
+
+    down = [n for i, n in enumerate(CONTACT_NAMES) if last.contact[i] > 0.5]
+    print(f"  --    foot switches closed: {', '.join(down) if down else 'none'}"
+          "  (press each one and watch this change)")
+
+    print("\nestimator and safety")
+    health = [n for bit, n in HEALTH_NAMES.items() if last.health & bit]
+    check(not health, "no subsystem faults", f"faults: {', '.join(health)}")
+    check(last.fused_valid > 0, "estimator running",
+          "the estimator is INVALID - no contact, or no IMU")
+    check(last.fk_valid == 0x3, "both legs' kinematics valid",
+          f"fk_valid 0x{last.fk_valid:X}: a leg's joint angles are not usable")
+    print(f"  --    safety state {SAFETY_NAMES.get(last.safety_state, '?')}, "
+          f"gains_seq {last.gains_seq}")
+
+    print()
+    if fails:
+        print(f"NOT READY - {len(fails)} problem(s)")
+        return 1
+    if warns:
+        print(f"ready, with {len(warns)} thing(s) to look at")
+        return 0
+    print("ready")
+    return 0
+
+
+# ---------------------------------------------------------------- stop
+
+def cmd_stop(args) -> int:
+    from std_srvs.srv import Trigger
+
+    ros = Ros("zeus_stop")
+    resp = ros.call(Trigger, "/zeus/stand_down", Trigger.Request())
+    ros.close()
+    print(resp.message if resp.success else f"stand down failed: {resp.message}")
+    print("the drives are idle. `ros2 service call /zeus/resume std_srvs/srv/Trigger`"
+          " hands enable back.")
+    return 0 if resp.success else 1
+
+
+# ---------------------------------------------------------------- gains
+
+def cmd_gains(args) -> int:
+    from zeus_link.nexus_proto import JOINT_NAMES
+
+    path = gains_path()
+    doc, joints = load_gains(path)
+
+    if args.action == "show":
+        print(f"{path}\n")
+        print(f"{'joint':<20}{'pos':>8}{'vel':>8}{'vel_int':>10}")
+        for n in JOINT_NAMES:
+            g = joints[n]
+            print(f"{n:<20}{g['pos']:>8}{g['vel']:>8}{g['vel_int']:>10}")
+        try:
+            ros = Ros("zeus_gains")
+            states = ros.collect_states(0.5, quiet=True)
+            ros.close()
+            if states:
+                print(f"\nthe board last applied gains_seq {states[-1].gains_seq}")
+        except Exception:
+            pass
+        print("\nThese are what `zeus gains push` sends. The board arms with the\n"
+              "table in its robot_config.c until something pushes these - put a\n"
+              "settled value there and reflash.")
+        return 0
+
+    if args.action == "set":
+        if args.joint not in joints:
+            die(f"no joint called {args.joint}")
+        for key, val in (("pos", args.pos), ("vel", args.vel), ("vel_int", args.vel_int)):
+            if val is not None:
+                joints[args.joint][key] = float(val)
+        write_gains(path, doc)
+        g = joints[args.joint]
+        print(f"{args.joint}: pos {g['pos']}  vel {g['vel']}  vel_int {g['vel_int']}  -> {path}")
+        if args.no_push:
+            return 0
+
+    return push_gains(joints)
+
+
+def write_gains(path: Path, doc) -> None:
+    """Rewrite the file, keeping the comment block at the top."""
+    import yaml
+
+    header = path.read_text().split("joints:")[0] if path.exists() else ""
+    body = yaml.safe_dump({"joints": doc["joints"]}, default_flow_style=False,
+                          sort_keys=False).rstrip()
+    path.write_text(header + body + "\n")
+
+    check = yaml.safe_load(path.read_text())
+    if not isinstance(check.get("joints"), dict):
+        die(f"{path} came out unreadable - not overwriting further")
+
+
+def push_gains(joints) -> int:
+    from zeus_msgs.srv import SetGains
+
+    pos, vel, vel_int = gain_columns(joints)
+    req = SetGains.Request()
+    req.pos_gain, req.vel_gain, req.vel_integrator_gain = pos, vel, vel_int
+
+    ros = Ros("zeus_gains")
+    resp = ros.call(SetGains, "/zeus/set_gains", req)
+    ros.close()
+
+    print(("pushed: " if resp.applied else "NOT pushed: ") + resp.message)
+    return 0 if resp.applied else 1
+
+
+# ---------------------------------------------------------------- record
+
+def cmd_record(args) -> int:
+    import numpy as np
+    from zeus_link.nexus_proto import JOINT_NAMES
+
+    RUNS.mkdir(parents=True, exist_ok=True)
+    out = RUNS / f"{args.name}.npz"
+    if out.exists() and not args.force:
+        die(f"{out} exists - pick another name or pass --force")
+
+    ros = Ros("zeus_record")
+    print(f"recording {args.seconds:.0f} s into {out} - drive the robot now")
+    states = ros.collect_states(args.seconds, deep=True)
+    ros.close()
+
+    if not states:
+        die("no /zeus/state - is the stack running?")
+
+    def col(field):
+        return np.array([getattr(s, field) for s in states], dtype=np.float64)
+
+    gains = {}
+    try:
+        _, joints = load_gains(gains_path())
+        p, v, vi = gain_columns(joints)
+        gains = dict(gains_pos=np.array(p), gains_vel=np.array(v), gains_vel_int=np.array(vi))
+    except SystemExit:
+        pass
+
+    np.savez(out, joints=np.array(JOINT_NAMES), seq=col("seq"),
+             act_target=col("act_target"), joint_pos=col("joint_pos"),
+             joint_vel=col("joint_vel"), act_torque=col("act_torque"),
+             phase=col("phase"), safety_state=col("safety_state"),
+             gains_seq=col("gains_seq"), **gains)
+
+    driving = np.isfinite(col("act_target")).any(axis=1).sum()
+    ticks = int(states[-1].seq - states[0].seq) or 1
+    print(f"saved {len(states)} packets of the board's {ticks} ticks "
+          f"({100 * len(states) / ticks:.0f}%), {driving} with the drives being commanded")
+    if not driving:
+        print("Nothing was being driven, so there is nothing to tune. Start the "
+              "gait first:\n  ros2 launch zeus_bringup walk.launch.py enable:=true")
+        return 1
+    print(f"  zeus tune {args.name}")
+    return 0
+
+
+# ---------------------------------------------------------------- tune
+
+def analyse(run):
+    """Per-joint metrics, keyed by joint name. The maths lives in zeus_link."""
+    from zeus_link.tuning import analyse as analyse_arrays
+
+    names = [str(n) for n in run["joints"]]
+    rows = analyse_arrays(run["seq"], run["act_target"], run["joint_pos"], run["act_torque"])
+    return [(names[j], m) for j, m in rows]
+
+
+def cmd_tune(args) -> int:
+    import numpy as np
+    from zeus_link.tuning import advise
+
+    runs = sorted(RUNS.glob("*.npz"))
+    if not runs:
+        die(f"no runs in {RUNS} - record one first:  zeus record first_try")
+
+    if args.compare:
+        print(f"{'run':<20}{'joint':<20}{'rms deg':>9}{'stuck %':>9}{'lag ms':>8}")
+        for path in runs:
+            for name, m in analyse(np.load(path, allow_pickle=True)):
+                if m:
+                    print(f"{path.stem:<20}{name:<20}{math.degrees(m['rms']):>9.2f}"
+                          f"{100 * m['stuck']:>9.1f}{m['lag_ms']:>8.0f}")
+        return 0
+
+    path = RUNS / f"{args.name}.npz" if args.name else runs[-1]
+    if not path.exists():
+        die(f"no run called {path.stem} in {RUNS}")
+    run = np.load(path, allow_pickle=True)
+
+    print(f"{path.stem}   {len(run['seq'])} ticks")
+    if "gains_pos" in run:
+        print("gains in the file when this was recorded are in the table below\n")
+
+    print(f"{'joint':<20}{'rms deg':>9}{'peak':>8}{'stuck %':>9}{'lag ms':>8}"
+          f"{'over deg':>10}{'Nm':>7}  what it says")
+    worst = []
+    for i, (name, m) in enumerate(analyse(run)):
+        if m is None:
+            print(f"{name:<20}{'not driven':>44}")
+            continue
+        note = advise(m)
+        gains = ""
+        if "gains_pos" in run:
+            gains = (f"   [pos {run['gains_pos'][i]:g} vel {run['gains_vel'][i]:g} "
+                     f"vi {run['gains_vel_int'][i]:g}]")
+        print(f"{name:<20}{math.degrees(m['rms']):>9.2f}{math.degrees(m['peak']):>8.2f}"
+              f"{100 * m['stuck']:>9.1f}{m['lag_ms']:>8.0f}{math.degrees(m['overshoot']):>10.2f}"
+              f"{m['peak_torque']:>7.2f}  {note}{gains}")
+        if "STUCK" in note:
+            worst.append(name)
+
+    print("\nOne joint at a time, one gain at a time, and record a new run after "
+          "each change:\n  zeus gains set <joint> --vel <x>   then   zeus record <name>")
+    if worst:
+        print(f"Start with: {', '.join(worst)} - they are not tracking at all.")
+    return 0
+
+
+# ---------------------------------------------------------------- main
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="zeus", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    c = sub.add_parser("check", help="pre-flight: link, drives, sensors, estimator")
+    c.add_argument("--seconds", type=float, default=2.0)
+    c.set_defaults(func=cmd_check)
+
+    s = sub.add_parser("stop", help="stand down: the drives go limp")
+    s.set_defaults(func=cmd_stop)
+
+    g = sub.add_parser("gains", help="show, push or change the drive gains")
+    g.add_argument("action", choices=["show", "push", "set"])
+    g.add_argument("joint", nargs="?", help="for `set`")
+    g.add_argument("--pos", type=float)
+    g.add_argument("--vel", type=float)
+    g.add_argument("--vel-int", type=float)
+    g.add_argument("--no-push", action="store_true", help="edit the file, send nothing")
+    g.set_defaults(func=cmd_gains)
+
+    r = sub.add_parser("record", help="record a run for tuning")
+    r.add_argument("name")
+    r.add_argument("--seconds", type=float, default=10.0)
+    r.add_argument("--force", action="store_true")
+    r.set_defaults(func=cmd_record)
+
+    t = sub.add_parser("tune", help="what a recorded run says about the gains")
+    t.add_argument("name", nargs="?")
+    t.add_argument("--compare", action="store_true", help="every run, side by side")
+    t.set_defaults(func=cmd_tune)
+
+    args = ap.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

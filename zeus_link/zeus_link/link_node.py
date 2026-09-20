@@ -12,6 +12,7 @@ Services:
     /zeus/stand_down   std_srvs/Trigger   latch: forward every command with
                                           enable false, and send one now
     /zeus/resume       std_srvs/Trigger   release that latch
+    /zeus/set_gains    zeus_msgs/SetGains write drive gains, between runs only
 
 Parameters (zeus_bringup/config/link.yaml):
     port                 "auto" or a device path
@@ -36,6 +37,7 @@ from rclpy.logging import get_logger
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_srvs.srv import Trigger
+from zeus_msgs.srv import SetGains
 from zeus_msgs.msg import NexusCommand, NexusState
 
 from .convert import (RESIDUAL_LIMIT_RAD, fill_state_msg, joint_state_arrays,
@@ -73,6 +75,7 @@ class LinkNode(Node):
         self.create_subscription(NexusCommand, "zeus/command", self._on_command, COMMAND_QOS)
         self.create_service(Trigger, "zeus/stand_down", self._on_stand_down)
         self.create_service(Trigger, "zeus/resume", self._on_resume)
+        self.create_service(SetGains, "zeus/set_gains", self._on_set_gains)
 
         self._stood_down = False
         self._published = 0
@@ -235,6 +238,50 @@ class LinkNode(Node):
         resp.message = ("standing down: commands are forwarded with enable false "
                         "until zeus/resume")
         self.get_logger().warn("stand down requested")
+        return resp
+
+    def _on_set_gains(self, req, resp):
+        """
+        Hand drive gains to the board and wait for it to say they landed.
+
+        The board refuses them while it is driving, and says so by not
+        advancing gains_seq - so this sends, then watches the state packets for
+        the echo. No echo inside the timeout means refused (or the board is not
+        talking), and the caller is told which.
+        """
+        for name in ("pos_gain", "vel_gain", "vel_integrator_gain"):
+            if len(getattr(req, name)) != NUM_JOINTS:
+                resp.applied = False
+                resp.message = f"{name} must have {NUM_JOINTS} entries"
+                return resp
+
+        try:
+            seq = self._link.send_gains(req.pos_gain, req.vel_gain, req.vel_integrator_gain)
+        except Exception as exc:
+            resp.applied = False
+            resp.message = f"USB write failed: {exc}"
+            return resp
+
+        want = seq & 0xFF
+        deadline = time.monotonic() + 0.5
+
+        while time.monotonic() < deadline:
+            pkt = self._link.latest()
+            if pkt is not None and pkt.gains_seq == want:
+                resp.applied = True
+                resp.message = f"applied (gains_seq {want})"
+                self.get_logger().info(f"drive gains applied, gains_seq {want}")
+                return resp
+            time.sleep(0.01)
+
+        pkt = self._link.latest()
+        resp.applied = False
+        if pkt is None:
+            resp.message = "no state packets - is the board connected?"
+        else:
+            resp.message = (f"refused: the board is {SAFETY_NAMES.get(pkt.safety_state, '?')}. "
+                            "Gains can only be changed between runs - stand down first.")
+        self.get_logger().warn(resp.message)
         return resp
 
     def _on_resume(self, _req, resp):

@@ -8,6 +8,7 @@ find_package(std_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/NexusState.msg"
   "msg/NexusCommand.msg"
+  "srv/SetGains.srv"
   DEPENDENCIES std_msgs
 )
 

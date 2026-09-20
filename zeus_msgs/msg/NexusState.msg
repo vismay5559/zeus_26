@@ -98,6 +98,13 @@ uint32[8] act_error            # raw ODrive axis_error bitmask
 uint8[8] act_state             # raw ODrive axis_state (8 = CLOSED_LOOP_CONTROL)
 uint8[8] act_flags             # bit 0 telemetry fresh, bit 1 heartbeat fresh
 
+# What the drive was actually TOLD this tick, after the reference, the policy's
+# residual, the safety envelope, the slew limit and the interpolator. NaN while
+# nothing is being driven. ref_angle + residual is what was asked for; this is
+# what the joint got, and it is what joint_pos should be plotted against when
+# tuning a drive's gains.
+float32[8] act_target          # rad, output side, or NaN
+
 # ---- estimator internals -----------------------------------------------------
 float32[3] fused_pos            # m, world. [2] is pelvis_z; [0],[1] drift
 float32[3] fused_vel            # m/s, world frame
@@ -119,3 +126,5 @@ uint8 fused_valid               # FUSION_*
 uint8 health                    # HEALTH_* bits
 uint8 fk_valid                  # FK_*_VALID bits, one per foot_z entry
 uint8 safety_state              # SAFETY_*
+uint8 gains_seq                 # low byte of the last gains message the board
+                                # applied; unchanged means it refused them

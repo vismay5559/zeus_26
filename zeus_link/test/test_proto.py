@@ -6,11 +6,13 @@ import struct
 from zeus_link import nexus_proto as P
 
 
-def test_sizes_and_version_match_firmware_v7():
-    # link_proto.h: nexus_state_t 400, nexus_cmd_t 44, NEXUS_PROTO_VERSION 7.
-    assert P.STATE_SIZE == 400
+def test_sizes_and_version_match_firmware_v8():
+    # link_proto.h: nexus_state_t 434, nexus_cmd_t 44, nexus_gains_t 106,
+    # NEXUS_PROTO_VERSION 8.
+    assert P.STATE_SIZE == 434
     assert P.COMMAND_SIZE == 44
-    assert P.PROTO_VERSION == 7
+    assert P.GAINS_SIZE == 106
+    assert P.PROTO_VERSION == 8
 
 
 def test_crc_is_ccitt_false():

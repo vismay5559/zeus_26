@@ -230,6 +230,40 @@ ros2 launch zeus_bringup walk.launch.py policy:=rl enable:=true
 Add `rerun:=connect rerun_host:=<laptop IP>` to any launch to watch it live —
 after `source ~/rerun_venv/bin/activate` in that terminal.
 
+### The `zeus` command
+
+One command for the things you do around a run, from a second terminal while a
+launch is up:
+
+```bash
+ros2 run zeus_bringup zeus check       # is everything healthy enough to move?
+ros2 run zeus_bringup zeus stop        # stand down now: the drives go limp
+ros2 run zeus_bringup zeus record NAME # record a run while it walks
+ros2 run zeus_bringup zeus tune NAME   # what that run says about the gains
+ros2 run zeus_bringup zeus gains show  # the drive gains, and what the board took
+```
+
+Put it on `PATH` and it is just `zeus check`:
+
+```bash
+echo 'export PATH=$PATH:'"$PWD"'/install/zeus_bringup/lib/zeus_bringup' >> ~/.bashrc
+```
+
+**`zeus check`** is the pre-flight. It reads two seconds of `/zeus/state` and
+says, in order: is the board ticking at 1 kHz, is every drive reporting and
+free of errors, is the IMU streaming and reading about 9.81 m/s² while still,
+are all four spring encoders valid, which foot switches are closed (press each
+one and watch it change), and is the estimator running. It exits non-zero if
+anything is wrong, and it never sends a command — running it cannot move the
+robot.
+
+**`zeus stop`** calls `/zeus/stand_down`. The drives idle immediately and the
+launch keeps running, so `/zeus/resume` picks up where you left off.
+
+**Your SSH session is the dead-man switch.** Kill the terminal and commands
+stop; 200 ms later the board idles every axis by itself. Do not wrap the
+walking part in `nohup` or a systemd service.
+
 **Stopping.** `ctrl-c` on the launch sends `enable` false on the way out. To
 stop moving *without* stopping anything:
 
@@ -339,6 +373,7 @@ and use `rerun_serial --spawn --degrees`.
 | `/tf`, `/robot_description` | | robot_state_publisher → | | |
 | `/zeus/stand_down` | `std_srvs/Trigger` | service | | |
 | `/zeus/resume` | `std_srvs/Trigger` | service | | |
+| `/zeus/set_gains` | `zeus_msgs/SetGains` | service | | between runs only |
 
 **Always use `zeus_link.qos.STATE_QOS` and `COMMAND_QOS`** when subscribing or
 publishing. A reliable subscriber on the best-effort state topic receives
@@ -382,6 +417,58 @@ python3 -m zeus_rerun.rerun_serial --spawn
 The viewer opens with four tabs: every joint's **actual vs reference**, the
 estimator and sensors, the policy's residual with torques and health, and a 3D
 pelvis. Details: [zeus_rerun](zeus_rerun/README.md).
+
+---
+
+## Tuning the drives
+
+Each ODrive closes its own position and velocity loops at 8 kHz; the STM32 only
+sends targets. Which gains those loops use decides whether a joint tracks its
+command or lags behind it, and they are tuned from the Pi, between runs, with
+no reflashing:
+
+```bash
+ros2 run zeus_bringup zeus gains show                    # what is in the file
+ros2 run zeus_bringup zeus record baseline --seconds 10  # while it walks
+ros2 run zeus_bringup zeus tune baseline                 # what that run says
+ros2 run zeus_bringup zeus gains set left_knee_pitch --vel 20.0
+ros2 run zeus_bringup zeus record knee_vel20             # and again
+ros2 run zeus_bringup zeus tune --compare                # every run, side by side
+```
+
+**What is being measured.** The board reports, per joint per tick, what the
+drive was actually **told** (`act_target` — the reference plus the policy's
+residual, after the safety envelope, the slew limit and the interpolator) and
+where the joint **went** (`joint_pos`). `zeus tune` turns the gap between them
+into four numbers and one sentence per joint:
+
+| | what it means | which gain |
+|---|---|---|
+| **stuck %** | the command sweeping while the joint does not move | `vel_gain` — **fix this first** |
+| **over deg** | travelling past the command where it turns around | `vel_integrator_gain` |
+| **lag ms** | the right shape, arriving late | `pos_gain` |
+| **rms deg** | the size of the error, for comparing runs | — |
+| **Nm** | peak torque: how much capacity the joint is using | — |
+
+Order matters. A joint that sticks is not following at all, so its lag and
+overshoot describe nothing until the sticking is gone.
+
+**Where gains live.** `~/.zeus/gains.yaml` on the Pi, seeded from
+[zeus_bringup/config/gains.yaml](zeus_bringup/config/gains.yaml). `zeus gains
+push` sends them to the board, which writes them to every drive and re-sends
+them on each arm — so a drive that reboots comes back with the gains being
+tuned. They are **not** saved in the drives: power-cycle the board and it goes
+back to the table in the firmware's `robot_config.c`. When a value is settled,
+put it there and reflash.
+
+The board **refuses** a gain change while it is driving: a velocity gain
+changing under load is a step change in torque with a leg's weight behind it.
+`zeus stop` first.
+
+**On a stand, one joint at a time.** Nothing here balances the robot: the gait
+is a fixed trajectory. Tune with the feet off the ground, then with them taking
+weight, then walking. Hip pitch and knee are series-elastic, so expect lower
+gains there — a stiff position loop fights the spring.
 
 ---
 
