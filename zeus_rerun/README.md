@@ -103,7 +103,7 @@ The viewer opens with this layout (rearrange freely):
 
 | tab | panels |
 |---|---|
-| **Joints: actual vs reference** | one plot per joint, 10 in a grid: `joint_pos` against `ref_angle` |
+| **Joints: actual vs reference** | one plot per joint, 8 in a grid: `joint_pos` against `ref_angle` |
 | **Estimator & sensors** | pelvis height, heading-frame velocity, IMU gyro and accel, foot switches, foot heights, spring deflection, gait phase |
 | **Policy, drives & health** | the residual the policy sent (ROS mode), torque, joint velocity, safety state, health bits, loop time, overruns |
 | **3D** | the pelvis pose from the fused quaternion, and the feet at their estimated height |
