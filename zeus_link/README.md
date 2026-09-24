@@ -4,7 +4,7 @@ The Raspberry Pi's end of the USB link to the STM32. **The only package that
 opens the serial port** — everything else goes through its topics.
 
 ```
-STM32 ──USB, 400 B @ 1 kHz──► link_node ──► /zeus/state    zeus_msgs/NexusState
+STM32 ──USB, 434 B @ 1 kHz──► link_node ──► /zeus/state    zeus_msgs/NexusState
                                         ──► /joint_states  sensor_msgs/JointState
 STM32 ◄──USB, 44 B @ 250 Hz── link_node ◄── /zeus/command  zeus_msgs/NexusCommand
 

@@ -19,11 +19,43 @@ import sys
 import time
 
 from .nexus_link import NexusLink
-from .nexus_proto import JOINT_NAMES, SAFETY_NAMES, STREAM_LEG_TEST
+from .nexus_proto import (JOINT_NAMES, PROTO_VERSION, SAFETY_NAMES, STREAM_LEG_TEST,
+                          SYNC_BYTES)
 from .odrive_names import axis_state_name, error_names
 from .ports import PortError, find_port
 
 FUSION_NAMES = {0: "INVALID", 1: "CONVERGING", 2: "OK"}
+
+
+def diagnose(bytes_in: int, raw: bytes, port: str) -> str:
+    """
+    Why nothing is parsing.
+
+    "No packets" covers two completely different faults and used to report them
+    identically: nothing is arriving at all (wrong port, wrong cable, board not
+    running), or bytes ARE arriving and none of them parse - which is almost
+    always a firmware built against a different protocol version than this
+    workspace. That one is worth naming, because the cable, the port and the
+    board all look perfect while it happens.
+    """
+    if bytes_in == 0:
+        return (f"no bytes at all on {port} - wrong port (the ST-LINK one is 0483:374x), "
+                "a charge-only cable, or the Appli is not running")
+
+    # Bytes are arriving. Find a sync word in the raw stream and read the
+    # version byte the board is actually sending.
+    i = raw.find(SYNC_BYTES)
+    seen = raw[i + 3] if (i >= 0 and len(raw) > i + 3) else None
+
+    if seen is not None and seen != PROTO_VERSION:
+        return (f"{bytes_in} bytes arrived and none parsed: the board is "
+                f"sending protocol v{seen}, this workspace speaks v{PROTO_VERSION}. "
+                "Flash the firmware from the matching stm32_zeuss commit.")
+
+    return (f"{bytes_in} bytes arrived and none parsed. Either the board "
+            f"is on a different protocol version (this workspace speaks "
+            f"v{PROTO_VERSION}), or something else is writing to the port - check "
+            "that the udev rule keeping ModemManager off it is installed.")
 
 
 def main(argv=None) -> int:
@@ -52,7 +84,7 @@ def main(argv=None) -> int:
 
                 pkt = link.latest()
                 if pkt is None:
-                    print("no packets - is the Appli running in NEXUS_MODE_ROBOT?")
+                    print(diagnose(link.stats.bytes_in, link.raw_snapshot(), port))
                     continue
 
                 faults = ",".join(pkt.faults()) or "none"

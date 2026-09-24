@@ -43,6 +43,9 @@ from typing import Callable, Deque, List, Optional, Sequence
 
 import serial
 
+# How much of the raw stream to keep for diagnosing a link that will not parse.
+RAW_TAIL_BYTES = 1024
+
 from .nexus_proto import (CMD_ENABLE, NUM_JOINTS, NexusCommand, NexusGains, NexusState,
                           STATE_SIZE)
 
@@ -112,6 +115,7 @@ class NexusLink:
 
         self._tx_lock = threading.Lock()
         self._cmd_seq = 0
+        self._raw_tail = bytearray()
         # Starts at 1, and skips 0 on wrap: the board's gains_seq powers on at
         # 0, so a message sent with seq 0 would look applied before it landed.
         self._gains_seq = 1
@@ -210,6 +214,11 @@ class NexusLink:
             buf += chunk
             self.stats.bytes_in += len(chunk)
 
+            # Keep the tail of the raw stream. When nothing parses, this is the
+            # only way to tell "no bytes at all" from "bytes arriving that this
+            # version cannot read" - see link_check.diagnose().
+            self._raw_tail = (self._raw_tail + chunk)[-RAW_TAIL_BYTES:]
+
             # A single read can easily carry several packets - at 1 kHz any
             # scheduling hiccup batches them - so keep parsing until dry.
             # find_and_parse trims what it consumed and anything too short to
@@ -303,6 +312,10 @@ class NexusLink:
                                        vel_gain=list(vel_gain),
                                        vel_int_gain=list(vel_int_gain)).pack())
         return seq
+
+    def raw_snapshot(self) -> bytes:
+        """The last few hundred bytes read off the port, parsed or not."""
+        return bytes(self._raw_tail)
 
     def stand_down(self, residual: Optional[Sequence[float]] = None) -> None:
         """Hand the actuators back: send a command with CMD_ENABLE clear.

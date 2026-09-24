@@ -12,7 +12,7 @@ Raspberry Pi — which, by design, is not very much.
  4 foot switch ─┤                                                                              │
  CAN × 2 ───────┤                                                                              │
                 └──────────────┬───────────────────────────────────────────────▲───────────────┘
-                   state, 400 B│ every 1 ms                    residual, 44 B  │ ~250 Hz
+                   state, 434 B│ every 1 ms                    residual, 44 B  │ ~250 Hz
                         USB OTG HS                                             │
                 ┌──────────────▼───────────────────── Raspberry Pi ────────────┴───────────────┐
                 │ zeus_link   link_node ──► /zeus/state ──► your RL policy ──► /zeus/command    │
@@ -57,7 +57,7 @@ that copy against the C header.
 | | STM32 → Pi | Pi → STM32 |
 |---|---|---|
 | **what** | state: estimate, joints, reference, sensors, health | residual per joint + enable flag |
-| **size** | 400 bytes | 44 bytes |
+| **size** | 434 bytes | 44 bytes |
 | **rate** | 1000 Hz | ~250 Hz (the STM32 interpolates between commands) |
 | **units** | SI, radians on the output shaft | turns on the wire, **radians in ROS** |
 
@@ -300,7 +300,7 @@ ROS, in three steps. Each step proves the one before it.
 | **USB user port** | **this link** — USB OTG HS, 480 Mbit/s. Plug it into the Pi |
 
 The board is a USB device and the Pi is the host. On the Pi it becomes a serial
-port, `/dev/ttyACM*`, USB ID `0483:5740`, carrying binary packets: 400 bytes of
+port, `/dev/ttyACM*`, USB ID `0483:5740`, carrying binary packets: 434 bytes of
 state every millisecond out, commands in.
 
 **Which firmware sends packets:** `NEXUS_MODE_ROBOT` always, and

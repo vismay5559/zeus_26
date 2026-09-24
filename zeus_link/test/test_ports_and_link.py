@@ -1,12 +1,13 @@
 """Port discovery, ODrive names, and the threaded reader end to end."""
 
+import struct
 import time
 from types import SimpleNamespace
 
 import pytest
 import serial
 
-from zeus_link import nexus_link, nexus_proto as P
+from zeus_link import link_check, nexus_link, nexus_proto as P
 from zeus_link.odrive_names import axis_state_name, error_names
 from zeus_link.ports import PortError, STABLE_NAME, find_port
 from zeus_link.synthetic import pack_state, state_values as build_state
@@ -95,3 +96,29 @@ def test_send_command_writes_one_valid_frame(monkeypatch):
     second = struct.unpack(P.COMMAND_FORMAT, bytes(written[P.COMMAND_SIZE:]))
     assert first[3] == 0 and second[3] == 1        # seq advances per command
     assert first[-2] & P.CMD_ENABLE and not (second[-2] & P.CMD_ENABLE)
+
+
+# ---- what a link that will not parse says ---------------------------------
+#
+# "No packets" used to cover two unrelated faults: nothing arriving at all, and
+# bytes arriving that this version cannot read. The second is what a protocol
+# bump looks like from the Pi - cable, port and board all fine - so it is worth
+# naming rather than leaving someone to swap cables for an hour.
+
+def test_no_bytes_at_all_blames_the_port_not_the_protocol():
+    msg = link_check.diagnose(0, b"", "/dev/zeus_stm32")
+    assert "no bytes" in msg and "ST-LINK" in msg
+
+
+def test_bytes_that_do_not_parse_name_the_version_the_board_is_sending():
+    older = struct.pack("<HBB", P.SYNC, P.MSG_STATE, P.PROTO_VERSION - 1) + b"\x00" * 64
+    msg = link_check.diagnose(len(older), older, "/dev/zeus_stm32")
+
+    assert f"v{P.PROTO_VERSION - 1}" in msg          # what the board speaks
+    assert f"v{P.PROTO_VERSION}" in msg              # what we speak
+    assert "Flash" in msg
+
+
+def test_bytes_with_no_recognisable_frame_suggest_the_other_causes():
+    msg = link_check.diagnose(500, b"\x11\x22\x33" * 20, "/dev/zeus_stm32")
+    assert "ModemManager" in msg
