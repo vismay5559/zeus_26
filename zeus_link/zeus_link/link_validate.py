@@ -56,6 +56,21 @@ POLICY_HZ = 250.0           # the RL policy's rate; a gap longer than its period
 POLICY_PERIOD_MS = 1000.0 / POLICY_HZ   # ...costs it a cycle on stale state
 CLOCK_TOLERANCE = 0.01      # 1% disagreement between the board's clock and ours
 
+# Every limit below is a RATE, deliberately.
+#
+# The first version failed on `lost > 0`, which sounds strict and is actually
+# useless: run long enough and a host will always drop one packet somewhere, so
+# an hour-long soak was guaranteed to fail and the number meant nothing. A
+# threshold nothing can pass is not a threshold.
+#
+# What matters is how often, measured against what the robot actually needs. A
+# single lost packet is 1 ms of staleness, invisible to a 250 Hz policy; one
+# every other second is a link coming apart. Same for long gaps: one per five
+# minutes is the host scheduler, dozens a minute is a real fault.
+MAX_LOSS_RATE = 1e-4        # 0.01%, i.e. about one packet per 10000
+WARN_LOSS_RATE = 0.0        # any loss at all is worth printing, not failing
+MAX_LONG_GAPS_PER_MIN = 5.0 # above this the stream is not fit for the policy
+
 U32 = 0xFFFFFFFF
 
 
@@ -109,11 +124,21 @@ def summarise(arrival_s: Sequence[float], seq: Sequence[int],
 
 
 def verdict(m: Dict) -> List[str]:
-    """One line per thing that is wrong, and why it is that side's fault."""
+    """
+    One line per thing that is wrong, and whose fault it is.
+
+    FAIL means the link is not fit for the robot. WARN means something
+    happened that is worth knowing and does not, on its own, disqualify the
+    run - the distinction matters because this gates bring-up scripts, and a
+    check that cries wolf gets ignored or removed.
+    """
     if "error" in m:
         return [f"FAIL: {m['error']}"]
 
     out: List[str] = []
+    minutes = max(m["duration_s"] / 60.0, 1e-9)
+    loss_rate = m["lost"] / max(m["packets"] + m["lost"], 1)
+    long_per_min = m["gaps_over_policy"] / minutes
 
     if m["tick_rate_hz"] < NOMINAL_HZ * (1.0 - TICK_TOLERANCE):
         short = NOMINAL_HZ - m["tick_rate_hz"]
@@ -122,27 +147,40 @@ def verdict(m: Dict) -> List[str]:
             f"missing {short:.0f} ticks a second. This is on the STM32, not the "
             f"link - printf from the 1 kHz loop is the usual cause.")
 
-    if m["lost"]:
+    if loss_rate > MAX_LOSS_RATE:
         out.append(
-            f"FAIL link: {m['lost']} of the board's ticks never arrived "
-            f"({m['delivered_pct']:.3f}% delivered). Cable, host or driver - "
-            f"check nothing else holds the port.")
+            f"FAIL link: {m['lost']} ticks never arrived, {loss_rate * 100:.4f}% "
+            f"- over the {MAX_LOSS_RATE * 100:.2f}% this link is allowed. Cable, "
+            f"host or driver; check nothing else holds the port.")
+    elif m["lost"] > WARN_LOSS_RATE:
+        out.append(
+            f"WARN link: {m['lost']} tick(s) never arrived in {m['duration_s']:.0f} s "
+            f"({loss_rate * 100:.4f}%). Each one is 1 ms of staleness, which the "
+            f"{POLICY_HZ:.0f} Hz policy cannot see. Worth watching across soaks, "
+            f"not a fault on its own.")
 
     if abs(m["clock_ratio"] - 1.0) > CLOCK_TOLERANCE:
         out.append(
             f"WARN clocks: the board's timer runs at {m['clock_ratio']:.4f}x the "
             f"Pi's. Every rate measured on either side is off by that much.")
 
-    if m["gaps_over_policy"]:
+    if long_per_min > MAX_LONG_GAPS_PER_MIN:
         out.append(
-            f"WARN jitter: {m['gaps_over_policy']} gaps longer than the policy's "
-            f"{POLICY_PERIOD_MS:.0f} ms period (worst {m['gap_max_ms']:.1f} ms). "
-            f"Each one is a policy cycle acting on a stale packet.")
+            f"FAIL jitter: {long_per_min:.1f} gaps a minute longer than the "
+            f"policy's {POLICY_PERIOD_MS:.0f} ms period (worst "
+            f"{m['gap_max_ms']:.1f} ms). The policy would act on stale state "
+            f"that often.")
+    elif m["gaps_over_policy"]:
+        out.append(
+            f"WARN jitter: {m['gaps_over_policy']} gap(s) over "
+            f"{POLICY_PERIOD_MS:.0f} ms in {m['duration_s']:.0f} s (worst "
+            f"{m['gap_max_ms']:.1f} ms), {long_per_min:.2f} a minute. Host "
+            f"scheduling; one policy cycle on stale state each time.")
 
-    if not out:
-        out.append(f"PASS: {m['tick_rate_hz']:.1f} Hz at the board, "
-                   f"{m['delivered_pct']:.3f}% delivered, worst gap "
-                   f"{m['gap_max_ms']:.1f} ms.")
+    if not any(line.startswith("FAIL") for line in out):
+        out.insert(0, f"PASS: {m['tick_rate_hz']:.1f} Hz at the board, "
+                      f"{m['delivered_pct']:.3f}% delivered, worst gap "
+                      f"{m['gap_max_ms']:.1f} ms.")
     return out
 
 
@@ -199,7 +237,8 @@ def main(argv=None) -> int:
     lines = verdict(m)
     for line in lines:
         print(line)
-    return 0 if lines[0].startswith("PASS") else 1
+    # WARN is information; only a FAIL should stop a bring-up script.
+    return 1 if any(line.startswith("FAIL") for line in lines) else 0
 
 
 if __name__ == "__main__":

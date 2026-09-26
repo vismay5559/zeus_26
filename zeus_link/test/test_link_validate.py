@@ -22,11 +22,13 @@ def run(n=3000, tick_hz=1000.0, drop_every=0, jitter_at=None, clock_ratio=1.0):
         if drop_every and (i % drop_every) == 0 and i:
             continue                       # the board ticked; nothing arrived
         t = i * dt
-        if jitter_at is not None and i >= jitter_at:
-            t += 0.050                     # a 50 ms stall, everything after shifts
-        arrival.append(t)
+        shift = 0.050 if (jitter_at is not None and i >= jitter_at) else 0.0
+        arrival.append(t + shift)
         seq.append(i)
-        us.append(int(i * dt * 1e6 * clock_ratio) & 0xFFFFFFFF)
+        # The board's own clock keeps running through a host-side stall, so
+        # shift its timestamp too - otherwise the fixture invents a clock
+        # drift that the case under test is not about.
+        us.append(int((i * dt + shift) * 1e6 * clock_ratio) & 0xFFFFFFFF)
     return arrival, seq, us
 
 
@@ -68,7 +70,46 @@ def test_a_stall_longer_than_the_policy_period_is_reported():
     assert m["gap_p50_ms"] == pytest.approx(1.0, abs=0.1)
     assert m["gap_max_ms"] > POLICY_PERIOD_MS
     assert m["gaps_over_policy"] == 1
-    assert "WARN jitter" in " ".join(verdict(m))
+
+    # One stall inside three seconds is twenty a minute - a rate the policy
+    # would notice, so this fails rather than warns.
+    assert "FAIL jitter" in " ".join(verdict(m))
+
+
+# ---- rare events are reported, not treated as failures --------------------
+#
+# The first version of this failed on `lost > 0` and on any long gap at all,
+# which sounds strict and is useless: over a long enough soak a host will drop
+# something eventually, so the run was guaranteed to fail and the verdict
+# carried no information. Everything is judged as a rate now, and the two
+# cases below are exactly the ones a real five-minute soak produced.
+
+def test_one_lost_packet_in_a_long_run_warns_rather_than_fails():
+    arrival, seq, us = run(n=60000)
+    del arrival[30000], seq[30000], us[30000]      # a single dropped packet
+
+    m = summarise(arrival, seq, us)
+    assert m["lost"] == 1
+
+    said = verdict(m)
+    assert any(line.startswith("WARN link") for line in said)
+    assert not any(line.startswith("FAIL") for line in said)
+    assert said[0].startswith("PASS")
+
+
+def test_one_long_gap_in_five_minutes_warns_rather_than_fails():
+    m = summarise(*run(n=300000, jitter_at=150000))
+    assert m["gaps_over_policy"] == 1
+
+    said = verdict(m)
+    assert any(line.startswith("WARN jitter") for line in said)
+    assert not any(line.startswith("FAIL") for line in said)
+
+
+def test_sustained_loss_still_fails():
+    """One in fifty is a link coming apart, not a scheduling hiccup."""
+    said = verdict(summarise(*run(drop_every=50)))
+    assert any(line.startswith("FAIL link") for line in said)
 
 
 def test_a_drifting_board_clock_is_called_out():

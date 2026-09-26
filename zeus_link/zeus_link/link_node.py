@@ -321,10 +321,21 @@ class LinkNode(Node):
     def destroy_node(self) -> None:
         # Hand the actuators back before letting go of the port, so a stopped
         # node idles the robot now instead of 200 ms later via a link fault.
+        #
+        # A second Ctrl-C must not cut this short. SIGINT during the sleep
+        # below raises KeyboardInterrupt right through the stand-down, so an
+        # impatient double tap could stop the node WITHOUT having told the
+        # drives to let go - the robot then stays live until the link fault
+        # times out 200 ms later. Someone pressing Ctrl-C twice is someone who
+        # wants it stopped sooner, not later, so the interrupt is swallowed
+        # here and the disable frames go out regardless.
         try:
             for _ in range(3):
-                self._send([0.0] * NUM_JOINTS, enable=False)
-                time.sleep(0.005)
+                try:
+                    self._send([0.0] * NUM_JOINTS, enable=False)
+                    time.sleep(0.005)
+                except KeyboardInterrupt:
+                    pass
         finally:
             self._stop.set()
             self._pub_thread.join(timeout=1.0)
