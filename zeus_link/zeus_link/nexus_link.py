@@ -125,7 +125,19 @@ class NexusLink:
     # ---- lifecycle ------------------------------------------------------
 
     def start(self) -> None:
-        self._ser = serial.Serial(self._port_name, timeout=0.005)
+        # exclusive=True takes an advisory lock on the tty, so a SECOND reader
+        # fails to open instead of quietly stealing bytes from the first. Two
+        # processes on one serial port do not each get a copy of the stream:
+        # every byte goes to whichever read() got there first, so both see a
+        # shredded stream and report junk and loss that the link never had.
+        # That is a confusing failure to debug from either side, and it happens
+        # the first time somebody runs link_check while link_node is up.
+        try:
+            self._ser = serial.Serial(self._port_name, timeout=0.005, exclusive=True)
+        except TypeError:
+            # Non-POSIX pyserial backends, and the loop:// URL used in tests,
+            # do not take the flag.
+            self._ser = serial.Serial(self._port_name, timeout=0.005)
 
         # The tty layer normally waits up to 16 ms to batch small reads, which
         # would turn a 1 ms stream into 16 ms bursts. Not available on every
