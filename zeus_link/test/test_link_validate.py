@@ -92,3 +92,59 @@ def test_counter_wrap_is_not_reported_as_catastrophic_loss():
 def test_too_few_packets_says_so_rather_than_dividing_by_zero():
     assert "error" in summarise([], [], [])
     assert verdict(summarise([], [], []))[0].startswith("FAIL")
+
+
+# ---- the port already being held -----------------------------------------
+#
+# Two readers on one port is the normal mistake, not an exotic one: it happens
+# the first time somebody runs link_check while a launch is up. The lock makes
+# it fail, which is right - but it has to fail as an ANSWER. Left raw, pyserial
+# surfaces a two-deep traceback ending in "Resource temporarily unavailable",
+# and the one sentence that tells you what to do is buried in it.
+
+def test_a_port_held_elsewhere_reports_plainly_and_does_not_traceback(monkeypatch):
+    import errno as _errno
+
+    import serial
+
+    from zeus_link import nexus_link
+    from zeus_link.ports import PortError
+
+    def busy(*a, **k):
+        exc = serial.SerialException(_errno.EAGAIN, "Could not exclusively lock port")
+        exc.errno = _errno.EAGAIN
+        raise exc
+
+    monkeypatch.setattr(nexus_link.serial, "Serial", busy)
+
+    with pytest.raises(PortError) as caught:
+        nexus_link.NexusLink("/dev/zeus_stm32").start()
+
+    said = str(caught.value)
+    assert "already open in another program" in said
+    assert "one reader at a time" in said.lower()
+
+
+def test_starting_twice_does_not_reopen_the_port(monkeypatch):
+    """The CLIs open before `with`, and __enter__ starts again."""
+    from types import SimpleNamespace
+
+    from zeus_link import nexus_link
+
+    opened = []
+
+    def once(*a, **k):
+        opened.append(1)
+        return SimpleNamespace(read=lambda n: b"", in_waiting=0,
+                               reset_input_buffer=lambda: None, close=lambda: None,
+                               set_low_latency_mode=lambda v: None)
+
+    monkeypatch.setattr(nexus_link.serial, "Serial", once)
+
+    link = nexus_link.NexusLink("/dev/zeus_stm32")
+    try:
+        link.start()
+        link.start()
+        assert len(opened) == 1
+    finally:
+        link.stop()

@@ -170,7 +170,14 @@ def main(argv=None) -> int:
         board_us.append(pkt.timestamp_us)
 
     print(f"measuring {port} for {a.seconds:.0f} s - nothing is sent to the board")
-    with NexusLink(port, on_packet=record) as link:
+    try:
+        link_cm = NexusLink(port, on_packet=record)
+        link_cm.start()
+    except PortError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    with link_cm as link:
         try:
             time.sleep(a.seconds)
         except KeyboardInterrupt:

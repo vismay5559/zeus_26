@@ -72,7 +72,14 @@ def main(argv=None) -> int:
         print(exc, file=sys.stderr)
         return 1
 
-    with NexusLink(port) as link:
+    try:
+        link_cm = NexusLink(port)
+        link_cm.start()
+    except PortError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    with link_cm as link:
         print(f"reading {port} - ctrl-c to stop\n")
         t0, last = time.monotonic(), 0
         try:

@@ -36,12 +36,15 @@ drain(); reception is 1 kHz either way.
 
 from __future__ import annotations
 
+import errno
 import threading
 import time
 from collections import deque
 from typing import Callable, Deque, List, Optional, Sequence
 
 import serial
+
+from .ports import PortError
 
 # How much of the raw stream to keep for diagnosing a link that will not parse.
 RAW_TAIL_BYTES = 1024
@@ -125,6 +128,13 @@ class NexusLink:
     # ---- lifecycle ------------------------------------------------------
 
     def start(self) -> None:
+        # Idempotent: the CLIs open the port before entering the `with` block,
+        # so that a port already held by another program is reported as one
+        # plain sentence instead of unwinding out of __enter__. Starting twice
+        # would try to take the exclusive lock we ourselves already hold.
+        if self._ser is not None:
+            return
+
         # exclusive=True takes an advisory lock on the tty, so a SECOND reader
         # fails to open instead of quietly stealing bytes from the first. Two
         # processes on one serial port do not each get a copy of the stream:
@@ -132,12 +142,26 @@ class NexusLink:
         # shredded stream and report junk and loss that the link never had.
         # That is a confusing failure to debug from either side, and it happens
         # the first time somebody runs link_check while link_node is up.
+        #
+        # The lock failing is the NORMAL way to find out something else is
+        # already reading, so it has to read as an answer rather than as a
+        # crash. pyserial raises SerialException with an errno buried in it;
+        # left alone that reaches the user as a two-deep traceback ending in
+        # "Resource temporarily unavailable", which buries the one useful
+        # sentence. PortError is what the CLIs already catch and print plainly.
         try:
             self._ser = serial.Serial(self._port_name, timeout=0.005, exclusive=True)
         except TypeError:
             # Non-POSIX pyserial backends, and the loop:// URL used in tests,
             # do not take the flag.
             self._ser = serial.Serial(self._port_name, timeout=0.005)
+        except serial.SerialException as exc:
+            if getattr(exc, "errno", None) in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EBUSY):
+                raise PortError(
+                    f"{self._port_name} is already open in another program. "
+                    "Only one reader at a time - stop link_node, link_check or "
+                    "any launch holding it, then try again.") from exc
+            raise PortError(f"cannot open {self._port_name}: {exc}") from exc
 
         # The tty layer normally waits up to 16 ms to batch small reads, which
         # would turn a 1 ms stream into 16 ms bursts. Not available on every
