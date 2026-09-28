@@ -46,7 +46,7 @@ STATE_FIELDS: Tuple[Tuple[str, str, int], ...] = (
     ("joint_vel", "float32", NUM_JOINTS),
     ("spring_angle", "float32", 4),
     ("ref_angle", "float32", NUM_JOINTS),
-    ("contact", "float32", 4),
+    ("contact", "float32", 2),
     ("foot_z", "float32", 2),
     ("phase", "float32", 1),
     ("imu_quat", "float32", 4),

@@ -16,7 +16,7 @@ What it does, in order:
   3. makes every actuated and spring joint `revolute` with limits, and flips
      joint axes so every pitch joint turns about +Y and every roll joint about
      +X - on both legs
-  4. adds frames Fusion has no reason to export: imu_link and the toe and heel
+  4. adds frames Fusion has no reason to export: imu_link and the contact
      contact points, given in the robot's frame at the zero pose
   5. points meshes at package://zeus_description/meshes/
 
@@ -24,7 +24,7 @@ Usage (from anywhere; needs numpy and pyyaml):
 
     python3 zeus_description/scripts/clean_urdf.py            # write urdf/zeus.urdf
     python3 zeus_description/scripts/clean_urdf.py --check    # exit 1 if zeus.urdf is stale
-    python3 zeus_description/scripts/clean_urdf.py --suggest  # IMU/toe/heel positions from the meshes
+    python3 zeus_description/scripts/clean_urdf.py --suggest  # IMU/contact positions from the meshes
 """
 
 from __future__ import annotations
@@ -269,7 +269,7 @@ def clean(cfg: dict) -> str:
 
 
 def suggest(cfg: dict):
-    """IMU on top of its parent part, toe/heel at the sole's front and rear edge."""
+    """IMU on top of its parent part, the contact switch at the sole's centre."""
     raw = ET.parse(os.path.join(PKG, cfg["raw_urdf"])).getroot()
     tree = Tree(raw, os.path.join(PKG, "meshes"))
     R_wb, c_w = body_frame(tree, cfg)
@@ -286,8 +286,10 @@ def suggest(cfg: dict):
     for name, spec in cfg["contacts"].items():
         vb = body(tree.mesh_world(inv_name[spec["parent"]]))
         sole = vb[vb[:, 2] < vb[:, 2].min() + 0.002]
-        x = sole[:, 0].max() if name.endswith("toe") else sole[:, 0].min()
-        print(f"{name} ({spec['parent']}, sole {'front' if name.endswith('toe') else 'rear'} edge):")
+        # One switch per foot, so the point that best represents "this foot is
+        # taking weight" is the middle of the sole rather than either end.
+        x = (sole[:, 0].min() + sole[:, 0].max()) / 2
+        print(f"{name} ({spec['parent']}, sole centre):")
         print(f"  xyz: [{x:.4f}, {(sole[:, 1].min()+sole[:, 1].max())/2:.4f}, {vb[:, 2].min():.4f}]")
 
 

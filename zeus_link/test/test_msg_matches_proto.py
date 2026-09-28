@@ -48,7 +48,7 @@ def test_state_field_types_match_the_wire_format():
     wire = {name: (_PY_TYPE[code], int(n or 1)) for name, (n, code) in zip(order, chunks)}
     for name, typ, count in convert.STATE_FIELDS:
         assert wire[name] == (typ, count), name
-    assert struct.calcsize(P.STATE_FORMAT) == 434
+    assert struct.calcsize(P.STATE_FORMAT) == 426
 
 
 def test_joint_constants_match_joint_names():
@@ -65,12 +65,14 @@ def test_other_constants_match_the_protocol():
            (P.FUSION_INVALID, P.FUSION_CONVERGING, P.FUSION_OK)
     for bit in ("IMU", "ENC", "CAN1", "CAN2", "LINK", "TIMING"):
         assert c["HEALTH_" + bit] == getattr(P, "HEALTH_" + bit)
-    assert c["CONTACTS_LEFT_FOOT_BIT"] == P.CONTACT_L_FOOT
-    assert c["CONTACTS_RIGHT_FOOT_BIT"] == P.CONTACT_R_FOOT
+    assert c["CONTACT_LEFT"] == P.CONTACT_LEFT
+    assert c["CONTACT_RIGHT"] == P.CONTACT_RIGHT
+    assert c["CONTACT_LEFT_BIT"] == P.CONTACT_L_BIT
+    assert c["CONTACT_RIGHT_BIT"] == P.CONTACT_R_BIT
     assert c["STREAM_GAIT_LIVE"] == P.STREAM_GAIT_LIVE
     assert c["STREAM_LEG_TEST"] == P.STREAM_LEG_TEST
     assert (c["FK_RIGHT_VALID"], c["FK_LEFT_VALID"]) == (P.FK_RIGHT_VALID, P.FK_LEFT_VALID)
-    assert [c["CONTACT_" + n.upper()] for n in P.CONTACT_NAMES] == [0, 1, 2, 3]
+    assert [c["CONTACT_" + n.upper()] for n in P.CONTACT_NAMES] == list(range(P.NUM_CONTACTS))
 
 
 def test_command_msg():

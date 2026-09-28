@@ -40,7 +40,7 @@ block as one `np.float32` array, in this order:
 | 21–30 | `joint_vel` | 10 | rad/s |
 | 31–34 | `spring_angle` | 4 | rad, spring deflection |
 | 35–44 | `ref_angle` | 10 | rad, the stored gait right now |
-| 45–48 | `contact` | 4 | 0/1: L toe, L heel, R toe, R heel |
+| 45–46 | `contact` | 2 | 0/1: left, right (one switch per foot) |
 | 49–50 | `foot_z` | 2 | m: right, left — may be NaN |
 | 51 | `phase` | 1 | 0..1 stride clock |
 

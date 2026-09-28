@@ -110,12 +110,17 @@ imu:
   rpy: [0.0, 0.0, 0.0]
 
 # ---------------------------------------------------------------------------
-# The four contact switches, one at the toe and one at the heel of each foot.
+# The foot contact switches.
 # From --suggest: the sole's front and rear edge, mid-width. The switch
 # positions are not final; move each here once they are.
 # ---------------------------------------------------------------------------
+# One mechanical switch per foot, at the CENTRE of the sole.
+#
+# There were two per foot, at the front and rear edges. One switch cannot tell
+# which part of the sole is loaded, so putting it at either edge would pin the
+# estimator to a point the robot is only standing on for part of the stride.
+# The centre is the least biased place: x is the midpoint of the old toe and
+# heel, y and z are the sole itself, unchanged.
 contacts:
-  left_toe:   {parent: left_foot,  xyz: [ 0.1068,  0.0815, -0.6347]}
-  left_heel:  {parent: left_foot,  xyz: [-0.1032,  0.0815, -0.6347]}
-  right_toe:  {parent: right_foot, xyz: [ 0.1068, -0.0705, -0.6337]}
-  right_heel: {parent: right_foot, xyz: [-0.1032, -0.0705, -0.6337]}
+  left_contact:  {parent: left_foot,  xyz: [ 0.0018,  0.0815, -0.6347]}
+  right_contact: {parent: right_foot, xyz: [ 0.0018, -0.0705, -0.6337]}

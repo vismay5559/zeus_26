@@ -21,7 +21,7 @@ spec.loader.exec_module(clean_urdf)
 ACTUATED = ["waist_pitch", "waist_roll"] + [
     f"{s}_{j}" for s in ("left", "right")
     for j in ("hip_roll", "hip_pitch", "hip_pitch_spring", "knee_pitch", "knee_pitch_spring", "ankle_pitch")]
-FRAMES = ["imu_link", "left_toe", "left_heel", "right_toe", "right_heel"]
+FRAMES = ["imu_link", "left_contact", "right_contact"]
 
 
 @pytest.fixture(scope="module")
@@ -80,16 +80,20 @@ def test_axes_follow_the_convention(tree):
 
 @pytest.mark.parametrize("side", ["left", "right"])
 def test_positive_angles_move_the_foot_the_same_way_on_both_legs(tree, side):
-    toe0 = fk(tree, f"{side}_toe", {})[:3, 3]
+    p0 = fk(tree, f"{side}_contact", {})[:3, 3]
     for joint, axis, sign in [("hip_pitch", 0, -1), ("hip_pitch_spring", 0, -1), ("hip_roll", 1, +1)]:
-        d = fk(tree, f"{side}_toe", {f"{side}_{joint}": 0.1})[:3, 3] - toe0
-        assert np.sign(d[axis]) == sign, f"{side}_{joint} +0.1 rad moved the toe {np.round(d, 4)}"
+        d = fk(tree, f"{side}_contact", {f"{side}_{joint}": 0.1})[:3, 3] - p0
+        assert np.sign(d[axis]) == sign, f"{side}_{joint} +0.1 rad moved the foot {np.round(d, 4)}"
 
 
 def test_frames_are_where_they_belong(tree):
     p = {f: fk(tree, f, {})[:3, 3] for f in FRAMES}
     for side, y in (("left", 1), ("right", -1)):
-        assert p[f"{side}_toe"][0] > p[f"{side}_heel"][0], f"{side} toe is behind its heel"
-        assert np.sign(p[f"{side}_toe"][1]) == y and np.sign(p[f"{side}_heel"][1]) == y
-        assert p[f"{side}_toe"][2] < -0.4
+        # One switch per foot, in the middle of the sole: on the correct side of
+        # the robot, on the floor, and near the ankle rather than out at an edge.
+        assert np.sign(p[f"{side}_contact"][1]) == y, f"{side}_contact is on the wrong side"
+        assert p[f"{side}_contact"][2] < -0.4, f"{side}_contact is not down at the sole"
+        assert abs(p[f"{side}_contact"][0]) < 0.05, \
+            f"{side}_contact is at {p[f'{side}_contact'][0]:.3f} m fore/aft - not the sole centre"
     assert p["imu_link"][2] > 0.1
+    assert abs(p["left_contact"][1] - p["right_contact"][1]) > 0.1, "the feet are on top of each other"

@@ -12,7 +12,7 @@ Raspberry Pi — which, by design, is not very much.
  4 foot switch ─┤                                                                              │
  CAN × 2 ───────┤                                                                              │
                 └──────────────┬───────────────────────────────────────────────▲───────────────┘
-                   state, 434 B│ every 1 ms                    residual, 44 B  │ ~250 Hz
+                   state, 426 B│ every 1 ms                    residual, 44 B  │ ~250 Hz
                         USB OTG HS                                             │
                 ┌──────────────▼───────────────────── Raspberry Pi ────────────┴───────────────┐
                 │ zeus_link   link_node ──► /zeus/state ──► your RL policy ──► /zeus/command    │
@@ -57,7 +57,7 @@ that copy against the C header.
 | | STM32 → Pi | Pi → STM32 |
 |---|---|---|
 | **what** | state: estimate, joints, reference, sensors, health | residual per joint + enable flag |
-| **size** | 434 bytes | 44 bytes |
+| **size** | 426 bytes | 44 bytes |
 | **rate** | 1000 Hz | ~250 Hz (the STM32 interpolates between commands) |
 | **units** | SI, radians on the output shaft | turns on the wire, **radians in ROS** |
 
@@ -138,7 +138,7 @@ zeus_26/
 ├── zeus_link/               the USB link: protocol, reader, link_node, passthrough, link_check
 ├── zeus_control_interface/  ← YOUR RL POLICY goes here (rl_policy_node.py)
 ├── zeus_rerun/              live plots and 3D in Rerun, from ROS or straight off serial
-├── zeus_description/        URDF from the Fusion 360 export: joints, springs, IMU, toe/heel frames
+├── zeus_description/        URDF from the Fusion 360 export: joints, springs, IMU, contact frames
 └── zeus_bringup/            robot.launch.py, walk.launch.py, link config, udev rule
 ```
 
@@ -300,7 +300,7 @@ ROS, in three steps. Each step proves the one before it.
 | **USB user port** | **this link** — USB OTG HS, 480 Mbit/s. Plug it into the Pi |
 
 The board is a USB device and the Pi is the host. On the Pi it becomes a serial
-port, `/dev/ttyACM*`, USB ID `0483:5740`, carrying binary packets: 434 bytes of
+port, `/dev/ttyACM*`, USB ID `0483:5740`, carrying binary packets: 426 bytes of
 state every millisecond out, commands in.
 
 **Which firmware sends packets:** `NEXUS_MODE_ROBOT` always, and

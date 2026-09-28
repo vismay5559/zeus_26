@@ -29,13 +29,15 @@ uint8 J_RIGHT_ANKLE_PITCH=7
 # and the waist is bolted at its zero pose. /joint_states still carries the
 # waist joints at 0 so the model in RViz stays in one piece.
 
-# ---- contact[4] order, and bits in `contacts` ------------------------------
-uint8 CONTACT_LEFT_TOE=0
-uint8 CONTACT_LEFT_HEEL=1
-uint8 CONTACT_RIGHT_TOE=2
-uint8 CONTACT_RIGHT_HEEL=3
-uint8 CONTACTS_LEFT_FOOT_BIT=16
-uint8 CONTACTS_RIGHT_FOOT_BIT=32
+# ---- contact[2] order, and bits in `contacts` ------------------------------
+# One mechanical switch per foot, at the centre of the sole. There were two per
+# foot, a toe and a heel, plus two derived "this foot is down" bits at 16 and
+# 32 that the board computed by OR-ing each foot's pair. One switch per foot
+# makes those derived bits copies of the switch bits, so they are gone.
+uint8 CONTACT_LEFT=0
+uint8 CONTACT_RIGHT=1
+uint8 CONTACT_LEFT_BIT=1
+uint8 CONTACT_RIGHT_BIT=2
 
 # ---- safety_state ----------------------------------------------------------
 uint8 SAFETY_BOOT=0
@@ -81,7 +83,7 @@ float32[8] joint_vel           # rad/s, output side
 float32[4] spring_angle         # rad, SPRING DEFLECTION, not a joint angle:
                                 # L hip pitch, L knee pitch, R hip pitch, R knee pitch
 float32[8] ref_angle           # rad, output side: stored gait at `phase`
-float32[4] contact              # 0.0 / 1.0, debounced, CONTACT_* order
+float32[2] contact              # 0.0 / 1.0, debounced, CONTACT_* order
 float32[2] foot_z               # m, world. [0] right, [1] left. NaN if invalid
 float32 phase                   # 0..1 stride clock
 # ==== end policy block ========================================================
@@ -121,7 +123,7 @@ uint8[2] can_bus_off            # bus-off events per bus, saturating at 255
 uint8 stream_flags              # STREAM_*
 uint16[2] contact_ticks         # ticks each foot has held its state
 uint8 enc_valid                 # bit per spring encoder
-uint8 contacts                  # switch bits 0..3, plus CONTACTS_*_FOOT_BIT
+uint8 contacts                  # one bit per foot switch; bits 2..7 unused
 uint8 fused_valid               # FUSION_*
 uint8 health                    # HEALTH_* bits
 uint8 fk_valid                  # FK_*_VALID bits, one per foot_z entry

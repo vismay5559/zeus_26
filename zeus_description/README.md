@@ -25,14 +25,15 @@ config/zeus_model.yaml      everything the export does not know or gets inconven
   (`left_knee_pitch`), then the spring's deflection (`left_knee_pitch_spring`).
   The leg's real angle is their sum.
 - **Frames** Fusion has no reason to export: `imu_link` and the four contact
-  points `left_toe`, `left_heel`, `right_toe`, `right_heel`.
+  points `left_contact` and `right_contact` - one switch per foot, at the
+  centre of each sole.
 
 ## Changing the model
 
 ```bash
 # new export from Fusion: replace urdf/zeus_raw.urdf and meshes/, then
 python3 zeus_description/scripts/clean_urdf.py            # writes urdf/zeus.urdf
-python3 zeus_description/scripts/clean_urdf.py --suggest  # IMU/toe/heel positions measured from the meshes
+python3 zeus_description/scripts/clean_urdf.py --suggest  # IMU/contact positions measured from the meshes
 python3 -m pytest zeus_description/test -q                # CI runs this too
 ```
 
@@ -55,6 +56,6 @@ ros2 launch zeus_description display.launch.py gui:=true    # laptop: sliders + 
 | design | Fusion version with **hip roll as the parent** | the real robot has hip pitch first: re-export |
 | joint limits | ±45° on every joint, springs included | real stops once known |
 | `imu_link` | centre of the electronics box's top face, axes = robot axes | the chip's real position and how it is rotated |
-| toe / heel | front and rear edge of each sole, mid-width | switch positions not final yet |
+| contact | centre of each sole | one mechanical switch per foot |
 | spring order | motor joint first, spring second on each axis | confirm against the CAD |
 | `/joint_states` | carries the 10 motor joints only | the 4 spring joints need the encoder→joint order from the firmware, until then TF stops at each spring |

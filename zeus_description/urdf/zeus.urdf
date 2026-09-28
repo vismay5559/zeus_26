@@ -738,32 +738,18 @@
     <child link="imu_link" />
     <origin xyz="0.068814036 -0.00686923244 -0.140457673" rpy="-3.13967519 0.022755615 -3.14154902" />
   </joint>
-  <!-- left_toe: contact switch point on the sole (added by clean_urdf.py) -->
-  <link name="left_toe" />
-  <joint name="left_foot_to_left_toe" type="fixed">
+  <!-- left_contact: contact switch point on the sole (added by clean_urdf.py) -->
+  <link name="left_contact" />
+  <joint name="left_foot_to_left_contact" type="fixed">
     <parent link="left_foot" />
-    <child link="left_toe" />
-    <origin xyz="-0.106216109 0.0473589987 -0.0350908587" rpy="-1.56887986 -4.36180037e-05 -3.11883704" />
+    <child link="left_contact" />
+    <origin xyz="-0.00124329324 0.049748132 -0.0350954386" rpy="-1.56887986 -4.36180037e-05 -3.11883704" />
   </joint>
-  <!-- left_heel: contact switch point on the sole (added by clean_urdf.py) -->
-  <link name="left_heel" />
-  <joint name="left_foot_to_left_heel" type="fixed">
-    <parent link="left_foot" />
-    <child link="left_heel" />
-    <origin xyz="0.103729522 0.0521372654 -0.0351000185" rpy="-1.56887986 -4.36180037e-05 -3.11883704" />
-  </joint>
-  <!-- right_toe: contact switch point on the sole (added by clean_urdf.py) -->
-  <link name="right_toe" />
-  <joint name="right_foot_to_right_toe" type="fixed">
+  <!-- right_contact: contact switch point on the sole (added by clean_urdf.py) -->
+  <link name="right_contact" />
+  <joint name="right_foot_to_right_contact" type="fixed">
     <parent link="right_foot" />
-    <child link="right_toe" />
-    <origin xyz="-0.106218845 0.0474931179 0.0349089885" rpy="-1.56887986 -4.36180038e-05 -3.11883704" />
-  </joint>
-  <!-- right_heel: contact switch point on the sole (added by clean_urdf.py) -->
-  <link name="right_heel" />
-  <joint name="right_foot_to_right_heel" type="fixed">
-    <parent link="right_foot" />
-    <child link="right_heel" />
-    <origin xyz="0.103726786 0.0522713846 0.0348998287" rpy="-1.56887986 -4.36180038e-05 -3.11883704" />
+    <child link="right_contact" />
+    <origin xyz="-0.00124602954 0.0498822512 0.0349044086" rpy="-1.56887986 -4.36180038e-05 -3.11883704" />
   </joint>
 </robot>

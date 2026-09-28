@@ -28,7 +28,7 @@ def state_values(seq=1234, **over):
         "joint_vel": [-0.01 * (i + 1) for i in range(P.NUM_JOINTS)],
         "spring_angle": [0.001, -0.002, 0.003, -0.004],
         "ref_angle": [0.2 * (i + 1) for i in range(P.NUM_JOINTS)],
-        "contact": [1.0, 0.0, 0.0, 1.0],
+        "contact": [1.0, 0.0],
         "foot_z": [0.0, float("nan")],
         "phase": 0.37,
         "imu_quat": [0.99, 0.0, 0.1, 0.0],

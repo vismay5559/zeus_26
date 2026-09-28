@@ -6,13 +6,14 @@ import struct
 from zeus_link import nexus_proto as P
 
 
-def test_sizes_and_version_match_firmware_v8():
-    # link_proto.h: nexus_state_t 434, nexus_cmd_t 44, nexus_gains_t 106,
-    # NEXUS_PROTO_VERSION 8.
-    assert P.STATE_SIZE == 434
+def test_sizes_and_version_match_firmware_v9():
+    # link_proto.h: nexus_state_t 426, nexus_cmd_t 44, nexus_gains_t 106,
+    # NEXUS_PROTO_VERSION 9. The state packet lost 8 bytes at v9: contact[]
+    # went from four floats to two when each foot dropped to one switch.
+    assert P.STATE_SIZE == 426
     assert P.COMMAND_SIZE == 44
     assert P.GAINS_SIZE == 106
-    assert P.PROTO_VERSION == 8
+    assert P.PROTO_VERSION == 9
 
 
 def test_crc_is_ccitt_false():
