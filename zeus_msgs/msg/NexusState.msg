@@ -72,7 +72,7 @@ std_msgs/Header header
 uint32 seq                      # 1 kHz tick counter on the STM32
 uint32 timestamp_us             # STM32 1 MHz counter, wraps every ~71 min
 
-# ==== policy block: 52 values, in this order =================================
+# ==== policy block: 44 values, in this order =================================
 # zeus_link.convert.policy_block(msg) returns them as one float32 array.
 float32 pelvis_z                # m, height above the stance ground
 float32[4] quat                 # w,x,y,z body->world, fused estimate
