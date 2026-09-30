@@ -80,4 +80,6 @@ def test_joint_map_is_the_confirmed_wiring():
     # Two legs, no waist: the waist actuators are not in this build, and the
     # two bolted joints are reported separately, not in the packet.
     assert P.NUM_JOINTS == 8
-    assert P.BOLTED_JOINT_NAMES == ("waist_pitch", "waist_roll")
+    # No waist in the model any more: both hips bolt straight to the torso, so
+    # there is no undriven joint for /joint_states to stand in for.
+    assert P.BOLTED_JOINT_NAMES == ()

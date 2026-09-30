@@ -18,7 +18,9 @@ spec = importlib.util.spec_from_file_location("clean_urdf", os.path.join(PKG, "s
 clean_urdf = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(clean_urdf)
 
-ACTUATED = ["waist_pitch", "waist_roll"] + [
+# Eight actuated joints plus four springs, four a leg. There is no waist: this
+# export bolts both hips straight to the torso.
+ACTUATED = [
     f"{s}_{j}" for s in ("left", "right")
     for j in ("hip_roll", "hip_pitch", "hip_pitch_spring", "knee_pitch", "knee_pitch_spring", "ankle_pitch")]
 FRAMES = ["imu_link", "left_contact", "right_contact"]

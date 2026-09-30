@@ -213,9 +213,27 @@ def clean(cfg: dict) -> str:
             if abs(dot) < 0.999:
                 raise SystemExit(f"{raw_name} ({spec['name']}) is declared {spec['kind']} but its "
                                  f"axis is {np.round(a_w, 3)} in the export")
+            #
+            # SNAP the axis, rather than only correcting its sign.
+            #
+            # The export carries a fraction of a degree of skew on every joint -
+            # about 0.13 deg on one leg and 0.26 on the other. It is not design
+            # intent: the two legs disagree, and real hinges are machined
+            # parallel. Left in, it means a positive hip pitch moves the two feet
+            # along very slightly different arcs, and every downstream comparison
+            # between legs inherits a small asymmetry that is pure export noise.
+            #
+            # `kind` in zeus_model.yaml is the declaration of what the axis is
+            # MEANT to be, and the check above already refuses anything more than
+            # 2.6 deg away from it. So write the intended axis exactly, expressed
+            # back in this joint's own frame.
+            # Always the intended direction, not merely the nearest one: a
+            # pitch axis ends up +Y and a roll axis +X on BOTH legs, so a
+            # positive angle means the same motion left and right. Half the
+            # export's joints point the other way, being mirrored parts.
+            Tj = tree.T(j.find("child").get("link"))
             ax = j.find("axis")
-            if dot < 0:
-                ax.set("xyz", fmt(-vec(ax.get("xyz"))))
+            ax.set("xyz", fmt(Tj[:3, :3].T @ want_w))
             j.set("name", spec["name"])
             j.set("type", "revolute")
             for old in j.findall("limit"):

@@ -15,13 +15,27 @@ robot_name: zeus
 mesh_uri_prefix: package://zeus_description/meshes/
 
 # ---------------------------------------------------------------------------
-# The robot's frame, written in the export's axes. In this export the left
-# hip is at +X and the right at -X, so +X is left; up is +Z; a right-handed
-# frame then makes forward -Y. Not a choice - the only consistent one.
+# The robot's frame, written in the export's axes.
+#
+# In THIS export the left hip sits at -X and the right at +X, so +X is right
+# and left is -X; up is +Z. A right-handed frame then forces forward to +Y.
+# Not a choice - the only consistent one.
+#
+# NOTE: this is the opposite handedness to the previous export, where left was
+# +X and forward -Y. The check that it is right: with this frame every one of
+# the twelve movable joints lands within 0.003 of a clean robot axis (ten pitch
+# about +Y, two roll about +X). A wrong frame scatters them, and clean_urdf.py
+# refuses anything worse than 0.999 alignment.
+#
+# WHICH LEG IS WHICH comes from the export's own link names, because nothing in
+# the geometry can settle it: the new foot is exactly symmetric fore-and-aft
+# (210 mm long, ankle at its centre to within 2 mm), so there is no toe to point
+# forward with. If the robot ever behaves as though its legs are swapped, this
+# is the first line to suspect - flip `left` to +X and re-run the script.
 # ---------------------------------------------------------------------------
 body_frame:
-  forward: -Y
-  left: +X
+  forward: +Y
+  left: -X
   up: +Z
   root_link: base_link
   # origin: midway between the two hips, each hip being where its roll and
@@ -32,37 +46,40 @@ body_frame:
 
 # ---------------------------------------------------------------------------
 # Links: export name -> name used everywhere else.
+#
+# The export mirrors parts without renaming them, so four links carry the wrong
+# side in their name: each leg's two spring bodies are labelled with the OTHER
+# leg's side. The mapping below is by position in the kinematic chain, which is
+# unambiguous, and the export name is left in the comment so it can be checked
+# against Fusion.
 # ---------------------------------------------------------------------------
 links:
-  Random-T: pelvis
-  Waist-Pitch-Actuator: waist_pitch_motor
-  waist: waist_bracket
-  Waist-Roll-Actuator: waist_roll_motor
-  base_link: torso                       # the electronics box
-  Hip-Roll-Actuator-Left: left_hip_roll_motor
-  complete_actuator_decoy: left_hip_pitch_motor
-  Hip-Spring-Left: left_hip_spring
-  holder_hip_2nd-1: left_hip_holder
-  Hip-Left: left_thigh
-  Knee-Actuator-Left-1: left_knee_motor
-  Spring-Right: left_knee_spring          # named Right in the export, sits in the left knee
-  holder_hip_2nd: left_knee_holder
-  knee_joint_2: left_knee_link
-  Shin-left: left_shin
-  Actuator-Left: left_ankle_motor
-  Foot-left: left_foot
-  Hip-Roll-control-right: right_hip_roll_motor
-  complete_actuator_decoy-v7Mirror: right_hip_pitch_motor
-  Spring-Hip-Right: right_hip_spring
-  holder_hip_2ndMirror: right_hip_holder
-  Hip-Right: right_thigh
-  Actuator-Knee-Right: right_knee_motor
-  Spring-Knee-left: right_knee_spring     # named left in the export, sits in the right knee
-  holder_hip_2nd-v6Mirror: right_knee_holder
-  knee_joint_2-v8Mirror: right_knee_link
-  Shin-Right: right_shin
-  Actuator-Right: right_ankle_motor
-  Foot-Right: right_foot
+  base_link: torso                          # the electronics box, and the root
+  IMU-1: imu_mount                          # the IMU board, as modelled
+
+  # ---- left leg, in chain order ----
+  Hip_pitch_left: left_hip_pitch_motor
+  Hip_spring_right: left_hip_spring         # named "right" in the export, sits in the LEFT hip
+  hip_pitch_bracket_left: left_hip_bracket
+  hip_roll_acc_left: left_hip_roll_motor
+  hip_roll_brackett_left: left_hip_roll_bracket
+  knee_actuator_left: left_knee_motor
+  Knee_spring_right: left_knee_spring       # named "right" in the export, sits in the LEFT knee
+  knee_brackett_left: left_knee_bracket
+  Ankel_left: left_ankle_motor
+  foot_left: left_foot
+
+  # ---- right leg, in chain order ----
+  Hip_pitch_right: right_hip_pitch_motor
+  Hip_Spring_left: right_hip_spring         # named "left" in the export, sits in the RIGHT hip
+  hip_pitch_bracket_right: right_hip_bracket
+  hip_roll_acc_right: right_hip_roll_motor
+  Hip_roll_bracket_right: right_hip_roll_bracket
+  knee_right: right_knee_motor
+  Knee_spring_left: right_knee_spring       # named "left" in the export, sits in the RIGHT knee
+  knee_brackett_right: right_knee_bracket
+  Ankel_right: right_ankle_motor
+  Foot_right: right_foot
 
 # ---------------------------------------------------------------------------
 # Movable joints. kind decides the axis direction after clean-up:
@@ -73,6 +90,10 @@ links:
 # output, then the spring deflection (spring: true). Their sum is the joint
 # angle the leg actually has.
 #
+# Eight actuated joints, four a leg. There is NO WAIST: this export bolts both
+# hips straight to the torso, so the two waist joints that used to sit between
+# them are gone from the model and from the kinematics.
+#
 # Limits: +/-45 deg (0.7854 rad) on every joint for now, springs included.
 # The estimator does not use them; simulation and training do.
 # ---------------------------------------------------------------------------
@@ -81,46 +102,67 @@ joint_defaults:
   velocity: 20.0      # rad/s, placeholder
 
 joints:
-  Waist-Pitch-Actuator_Revolute-62:     {name: waist_pitch,             kind: pitch, limit: [-0.7854, 0.7854]}
-  Waist-Roll-Actuator_Revolute-64:      {name: waist_roll,              kind: roll,  limit: [-0.7854, 0.7854]}
+  Hip_pitch_left_Revolute-11:      {name: left_hip_pitch,          kind: pitch, limit: [-0.7854, 0.7854]}
+  Hip_spring_right_Revolute-12:    {name: left_hip_pitch_spring,   kind: pitch, limit: [-0.7854, 0.7854], spring: true}
+  hip_roll_acc_left_Revolute-14:   {name: left_hip_roll,           kind: roll,  limit: [-0.7854, 0.7854]}
+  knee_actuator_left_Revolute-16:  {name: left_knee_pitch,         kind: pitch, limit: [-0.7854, 0.7854]}
+  Knee_spring_right_Revolute-17:   {name: left_knee_pitch_spring,  kind: pitch, limit: [-0.7854, 0.7854], spring: true}
+  Ankel_left_Revolute-19:          {name: left_ankle_pitch,        kind: pitch, limit: [-0.7854, 0.7854]}
 
-  Hip-Roll-Actuator-Left_Revolute-68:   {name: left_hip_roll,           kind: roll,  limit: [-0.7854, 0.7854]}
-  complete_actuator_decoy_Revolute-69:  {name: left_hip_pitch,          kind: pitch, limit: [-0.7854, 0.7854]}
-  Hip-Spring-Left_Revolute-70:          {name: left_hip_pitch_spring,   kind: pitch, limit: [-0.7854, 0.7854], spring: true}
-  Knee-Actuator-Left-1_Revolute-77:     {name: left_knee_pitch,         kind: pitch, limit: [-0.7854, 0.7854]}
-  Spring-Right_Revolute-78:             {name: left_knee_pitch_spring,  kind: pitch, limit: [-0.7854, 0.7854], spring: true}
-  Actuator-Left_Revolute-88:            {name: left_ankle_pitch,        kind: pitch, limit: [-0.7854, 0.7854]}
-
-  Hip-Roll-control-right_Revolute-67:   {name: right_hip_roll,          kind: roll,  limit: [-0.7854, 0.7854]}
-  complete_actuator_decoy-v7Mirror_Revolute-71: {name: right_hip_pitch, kind: pitch, limit: [-0.7854, 0.7854]}
-  Spring-Hip-Right_Revolute-72:         {name: right_hip_pitch_spring,  kind: pitch, limit: [-0.7854, 0.7854], spring: true}
-  Actuator-Knee-Right_Revolute-81:      {name: right_knee_pitch,        kind: pitch, limit: [-0.7854, 0.7854]}
-  Spring-Knee-left_Revolute-82:         {name: right_knee_pitch_spring, kind: pitch, limit: [-0.7854, 0.7854], spring: true}
-  Actuator-Right_Revolute-87:           {name: right_ankle_pitch,       kind: pitch, limit: [-0.7854, 0.7854]}
+  Hip_pitch_right_Revolute-2:      {name: right_hip_pitch,         kind: pitch, limit: [-0.7854, 0.7854]}
+  Hip_Spring_left_Revolute-3:      {name: right_hip_pitch_spring,  kind: pitch, limit: [-0.7854, 0.7854], spring: true}
+  hip_roll_acc_right_Revolute-6:   {name: right_hip_roll,          kind: roll,  limit: [-0.7854, 0.7854]}
+  knee_right_Revolute-7:           {name: right_knee_pitch,        kind: pitch, limit: [-0.7854, 0.7854]}
+  Knee_spring_left_Revolute-8:     {name: right_knee_pitch_spring, kind: pitch, limit: [-0.7854, 0.7854], spring: true}
+  Ankel_right_Revolute-10:         {name: right_ankle_pitch,       kind: pitch, limit: [-0.7854, 0.7854]}
 
 # ---------------------------------------------------------------------------
 # The IMU. parent is the part it is bolted to; xyz is the chip's position and
 # rpy its orientation relative to the robot's axes, at the zero pose.
 # rpy [0, 0, 0] means the chip's printed X points forward, Y left, Z up.
+#
+# This export MODELS the IMU board (link IMU-1), so xyz below is the modelled
+# board's own origin rather than the guess at a box face that the previous
+# export needed. If the chip sits somewhere else on that board, correct it here.
 # ---------------------------------------------------------------------------
 imu:
   parent: torso
-  # centre of the box's top face, from --suggest. TODO: the chip's real spot
-  xyz: [-0.0306, -0.0066, 0.3300]
+  # Centre of the modelled IMU board, measured from the export. The board is a
+  # 23 x 25 mm outline, so the chip is within ~12 mm of this wherever it sits
+  # on it.
+  xyz: [0.0000, -0.0013, 0.1274]
+  # imu_link IS the body frame the estimator works in, so its axes are DECLARED
+  # to be the robot's: X forward, Y left, Z up.
+  #
+  # The export models the board rotated 90 degrees about Z relative to the
+  # robot. That is not carried here on purpose. imu_link is the frame the whole
+  # stack is built on - the InEKF integrates in it, vel_hdg splits it into
+  # forward and lateral, and the policy is fed gyro in it - so yawing it by 90
+  # degrees would silently turn "forward" into "left" for every one of them.
+  # Putting it in makes three host kinematics assertions fail immediately, which
+  # is the stack telling you the same thing.
+  #
+  # So: if the physical chip really is mounted rotated, the rotation belongs in
+  # the IMU DRIVER (imu_bno085.c), applied once as the readings come in, so that
+  # everything downstream still gets robot-aligned axes. It does not belong here.
+  #
+  # UNVERIFIED and worth thirty seconds on the bench: hold the robot still and
+  # upright and read imu_accel from the state packet. It should be about
+  # (0, 0, +9.81). If gravity turns up on X or Y, the chip is not mounted the way
+  # this line assumes - fix the driver, not this file.
   rpy: [0.0, 0.0, 0.0]
 
-# ---------------------------------------------------------------------------
-# The foot contact switches.
-# From --suggest: the sole's front and rear edge, mid-width. The switch
-# positions are not final; move each here once they are.
 # ---------------------------------------------------------------------------
 # One mechanical switch per foot, at the CENTRE of the sole.
 #
 # There were two per foot, at the front and rear edges. One switch cannot tell
 # which part of the sole is loaded, so putting it at either edge would pin the
 # estimator to a point the robot is only standing on for part of the stride.
-# The centre is the least biased place: x is the midpoint of the old toe and
-# heel, y and z are the sole itself, unchanged.
+# The centre is the least biased place.
+#
+# On this export the sole is symmetric fore-and-aft and the ankle sits over its
+# middle, so the centre is very nearly straight below the ankle.
+# ---------------------------------------------------------------------------
 contacts:
-  left_contact:  {parent: left_foot,  xyz: [ 0.0018,  0.0815, -0.6347]}
-  right_contact: {parent: right_foot, xyz: [ 0.0018, -0.0705, -0.6337]}
+  left_contact:  {parent: left_foot,  xyz: [0.0056,  0.1011, -0.6648]}
+  right_contact: {parent: right_foot, xyz: [0.0056, -0.1011, -0.6648]}

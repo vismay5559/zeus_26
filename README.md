@@ -104,28 +104,29 @@ Every per-joint array — `joint_pos`, `joint_vel`, `ref_angle`, `act_*`,
 In code: `zeus_link.nexus_proto.JOINT_NAMES`, `JOINT_INDEX["right_knee_pitch"]`,
 or the `J_*` constants on `zeus_msgs/NexusState`.
 
-### Two legs, no waist — a temporary build
+### Two legs, no waist
 
-The robot has **ten** actuators: these eight plus waist roll (bus 0 node 5) and
-waist pitch (bus 1 node 5). This build is for bringing the two legs up without
-them, so the waist is **bolted at its zero pose** and node 5 on each bus is
-neither commanded nor expected.
+The robot has **eight** actuators, four a leg. It used to have ten: waist roll
+(bus 0 node 5) and waist pitch (bus 1 node 5). Those are gone from the machine
+and now from the model too — the current CAD export bolts both hips straight to
+the torso, so there is no waist joint left to hold at zero.
 
 What that means around the workspace:
 
-- **Packets carry 8 joints.** The wire format changed with it, so the Pi and the
-  board must be flashed and updated together — protocol **v7**, and either side
-  rejects the other's version rather than misreading it.
-- **The URDF still has the waist joints**, because the robot still has the
-  parts. `/joint_states` carries `waist_pitch` and `waist_roll` at 0
-  (`BOLTED_JOINT_NAMES`), so `robot_state_publisher` can still place everything
-  above the waist. Leaving them out would break the model in half.
-- **The estimator still uses the waist** in its kinematics — the IMU is mounted
-  above it — and holds it at zero with a small variance for the play in a
-  bolted bracket.
+- **Packets carry 8 joints**, and the wire format is versioned with it. The Pi
+  and the board must be flashed and updated together — protocol **v9**, and
+  either side rejects the other's version rather than misreading it.
+- **The URDF has no waist joints**, so `/joint_states` no longer carries
+  `waist_pitch` and `waist_roll`. `BOLTED_JOINT_NAMES` is empty; it existed to
+  stand in for joints the URDF had but nothing drove, and there are none.
+- **The estimator's joint vector is six per leg** — four drives plus the two
+  spring deflections. It was eight, the extra two being the waist, kept in the
+  chain because the IMU sat above them. Nothing sits between the IMU and the
+  hips now, so `ZEUS_KIN_NQ` is 6 and the Jacobian is 3x6.
 
-Putting the waist back: `git log` for the tag **`waist-10-actuators`**, the last
-commit with ten. The firmware side is listed in `link_proto.h`.
+Putting a waist back means a new CAD export with the joints in it, then
+`zeus_model.yaml`, then `ZEUS_KIN_Q_*` and `gen_kinematics.py`. `git log` for
+the tag **`waist-10-actuators`** is the last commit with ten actuators.
 
 ---
 

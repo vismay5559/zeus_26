@@ -22,8 +22,11 @@ Both repos push **directly to `main`**. Do not create branches.
 ## The hardware, concretely
 
 - **8 actuated joints**, 4 per leg: hip pitch, hip roll, knee pitch, ankle
-  pitch. There is no waist — it is bolted. Driven by **ODrive S1** over
+  pitch. **No waist at all** — both hips bolt straight to the torso, so it is
+  absent from the model too, not merely undriven. Driven by **ODrive S1** over
   **CAN-FD**, two buses (FDCAN1 = left leg, FDCAN2 = right).
+- The estimator's joint vector is **six per leg**: four drives plus the two
+  spring deflections (`ZEUS_KIN_NQ`).
 - **Joint index = `bus * 4 + (node - 1)`.** This mapping is the single source of
   truth for every per-joint array in both packets. It is written down in
   `link_proto.h` as `NEXUS_J_*` and in `nexus_proto.py` as `JOINT_NAMES`, and
