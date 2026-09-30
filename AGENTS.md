@@ -197,11 +197,17 @@ explaining them. Do not undo them.
   come from `tools/gen_kinematics.py`. CI checks the URDF's sha256 embedded in
   the model header against `zeus_26`'s actual URDF.
 - `zeus_description/urdf/zeus.urdf` comes from `clean_urdf.py` + the YAML.
-- **Pinocchio's current wheels are broken** (eigenpy built against a mismatched
-  numpy ABI). `gen_kinematics.py --model-only` regenerates the firmware tables
-  with numpy alone; only the host test's reference needs Pinocchio. The walk
-  simulation (`tools/sim/run.sh --check`) also needs it, so it may only be
-  runnable in CI.
+- **Pinocchio installs only at a pinned version.** `pin==2.7.0` with `numpy<2`
+  works; every 3.x/4.x wheel dies on import with
+  `undefined symbol: EIGENPY_ARRAY_APIPyArray_RUNTIME_VERSION`, a broken macro
+  in eigenpy. `tools/requirements-kinematics.txt` has the working pins and the
+  reasoning. With it, both the reference and the walk simulation
+  (`tools/sim/run.sh --check`) run locally:
+
+      PY=~/kinvenv/bin/python EVAL_PY=python3 env -u PYTHONPATH tools/sim/run.sh --check
+
+  `gen_kinematics.py --model-only` still regenerates the firmware tables with
+  numpy alone, for when even that is unavailable.
 
 **CubeMX**
 - It regenerates `main.c`, `main.h` and the MSP files. Changes outside
