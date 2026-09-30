@@ -72,7 +72,7 @@ bytes. Flash and deploy together.
 | `zeus_link` | the heart. `nexus_proto.py` (wire format), `nexus_link.py` (threaded reader), `link_node.py` (ROS node), `link_check`, `link_validate`, `fake_board`, `tuning.py` |
 | `zeus_bringup` | launch files, the `zeus` CLI (`scripts/zeus`), udev rule, config |
 | `zeus_description` | URDF generated from a Fusion 360 export by `scripts/clean_urdf.py` + `config/zeus_model.yaml`. **Edit the YAML, never the URDF.** |
-| `zeus_control_interface` | ros2_control hardware interface |
+| `zeus_control_interface` | **where the RL policy lives**: `rl_policy_node.py` (empty, already registered). Its README is the policy contract |
 | `zeus_rerun` | Rerun visualisation |
 | `zeus` | metapackage |
 

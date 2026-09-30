@@ -27,7 +27,7 @@ the robot walks the stored gait; output nothing and it stops.
 
 ## The observation
 
-`zeus_link.convert.policy_block(msg)` gives the 52 values of the packet's policy
+`zeus_link.convert.policy_block(msg)` gives the 44 values of the packet's policy
 block as one `np.float32` array, in this order:
 
 | slice | field | size | units |
@@ -36,13 +36,18 @@ block as one `np.float32` array, in this order:
 | 1–4 | `quat` | 4 | w, x, y, z — body → world |
 | 5–7 | `gyro` | 3 | rad/s, body frame |
 | 8–10 | `vel_hdg` | 3 | m/s: lateral, forward, vertical |
-| 11–20 | `joint_pos` | 10 | rad, output side |
-| 21–30 | `joint_vel` | 10 | rad/s |
-| 31–34 | `spring_angle` | 4 | rad, spring deflection |
-| 35–44 | `ref_angle` | 10 | rad, the stored gait right now |
-| 45–46 | `contact` | 2 | 0/1: left, right (one switch per foot) |
-| 49–50 | `foot_z` | 2 | m: right, left — may be NaN |
-| 51 | `phase` | 1 | 0..1 stride clock |
+| 11–18 | `joint_pos` | 8 | rad, output side |
+| 19–26 | `joint_vel` | 8 | rad/s |
+| 27–30 | `spring_angle` | 4 | rad, spring deflection |
+| 31–38 | `ref_angle` | 8 | rad, the stored gait right now |
+| 39–40 | `contact` | 2 | 0/1: left, right (one switch per foot) |
+| 41–42 | `foot_z` | 2 | m: right, left — may be NaN |
+| 43 | `phase` | 1 | 0..1 stride clock |
+
+Do not copy these numbers into code. `nexus_proto.POLICY_INDEX` gives each
+field's offset and length by name, and `test_this_table_matches_the_protocol`
+fails if this table ever drifts from it again - which it did, silently, across
+two protocol versions.
 
 **Raw SI values.** The STM32 applies no scaling, clipping or normalisation — do
 all of that here, exactly as in training. Replace NaNs in `foot_z` before the
@@ -97,7 +102,7 @@ class RLPolicyNode(Node):
     def step(self):
         cmd = NexusCommand()
         cmd.header.stamp = self.get_clock().now().to_msg()
-        cmd.residual_rad = [0.0] * 10
+        cmd.residual_rad = [0.0] * 8
         cmd.enable = False
 
         s = self.state
@@ -111,9 +116,9 @@ class RLPolicyNode(Node):
             self.confirmed = self.confirmed + 1 if ready else 0
             self.handshake_done = self.confirmed >= HANDSHAKE_TICKS
         elif fresh:
-            obs = policy_block(s)                                  # 52 raw SI values
+            obs = policy_block(s)                                  # 44 raw SI values
             obs = np.nan_to_num(obs)                              # <-- 2. your normalisation
-            residual = np.zeros(10, dtype=np.float32)             # <-- 3. self.policy(obs)
+            residual = np.zeros(8, dtype=np.float32)              # <-- 3. self.policy(obs)
             residual = np.clip(residual, -RESIDUAL_LIMIT_RAD, RESIDUAL_LIMIT_RAD)
             cmd.residual_rad = residual.astype(np.float32)
             cmd.enable = self.enable
